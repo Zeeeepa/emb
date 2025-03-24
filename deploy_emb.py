@@ -8,6 +8,7 @@ from environs import Env
 import torch
 import time
 import threading
+import rp_reviewer
 
 # Initialize environment variables
 env = Env()
@@ -166,6 +167,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.include_router(router=router, prefix="/api/v1")
 
+# Include the rp_reviewer router
+rp_reviewer.include_router(app)
+
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=5001, reload=True)
+    uvicorn.run("deploy_emb:app", host="0.0.0.0", port=5001, reload=True)
