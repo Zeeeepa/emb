@@ -19,7 +19,8 @@ This batch file provides a streamlined way to:
 1. Double-click on `git-update-merge.bat`
 2. Enter your target branch name when prompted
 3. Confirm the operation
-4. Follow the prompts in the WSL terminal
+4. Enter the path to your git repository in WSL (e.g., ~/projects/myrepo)
+5. Follow the prompts in the WSL terminal
 
 ### Advanced Usage
 
