@@ -2,6 +2,13 @@
 echo ===== Revert Last Merge Commit =====
 echo.
 
+REM Check if we're in a git repository
+git rev-parse --is-inside-work-tree >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo Error: Not a git repository. Please run this script from the root of a git repository.
+    exit /b 1
+)
+
 REM Store the current directory
 set REPO_DIR=%CD%
 
@@ -14,6 +21,12 @@ REM Find the last merge commit
 echo Finding last merge commit...
 for /f "tokens=*" %%a in ('git log --merges -n 1 --pretty=format:"%%H"') do (
     set MERGE_COMMIT=%%a
+)
+
+REM Check if a merge commit was found
+if "%MERGE_COMMIT%"=="" (
+    echo No merge commits found in the repository history.
+    exit /b 1
 )
 
 REM Show merge commit details for confirmation
