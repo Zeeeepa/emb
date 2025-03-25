@@ -5,7 +5,7 @@ from uuid import uuid4
 from langchain.tools import BaseTool
 from langchain_core.messages import AIMessage
 
-from AgentGen import Codebase
+from codegen import Codebase
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseLanguageModel

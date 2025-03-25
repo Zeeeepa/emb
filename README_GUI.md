@@ -62,7 +62,7 @@ __all__ = ["Codebase", "CodegenApp", "Function", "ProgrammingLanguage", "functio
 
 **Past Repository** (`__init__.py`):
 ```python
-from codegen.agents.code_agent import CodeAgent
+from AgentGen import CodeAgent
 # from codegen.extensions.index.file_index import FileIndex
 # from codegen.extensions.langchain.agent import create_agent_with_tools, create_codebase_agent
 __all__ = ["CodeAgent", "Codebase", "CodegenApp", "Function", "ProgrammingLanguage", "function"]
@@ -70,7 +70,7 @@ __all__ = ["CodeAgent", "Codebase", "CodegenApp", "Function", "ProgrammingLangua
 
 The tool will create a difference file showing what was removed:
 ```python
-from codegen.agents.code_agent import CodeAgent
+from AgentGen import CodeAgent
 # from codegen.extensions.index.file_index import FileIndex
 # from codegen.extensions.langchain.agent import create_agent_with_tools, create_codebase_agent
 __all__ = ['CodeAgent']
