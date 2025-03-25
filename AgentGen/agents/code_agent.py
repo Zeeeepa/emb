@@ -16,7 +16,7 @@ from agentgen.extensions.langchain.utils.get_langsmith_url import (
 )
 
 if TYPE_CHECKING:
-    from codegen import Codebase
+    from agentgen import Codebase
 
 from agentgen.agents.utils import AgentConfig
 
