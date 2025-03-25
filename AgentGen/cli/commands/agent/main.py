@@ -19,7 +19,7 @@ from agentgen.extensions.langchain.tools import (
     SearchTool,
     ViewFileTool,
 )
-from codegen.sdk.core.codebase import Codebase
+from agentgen.sdk.core.codebase import Codebase
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", message=".*Helicone.*")

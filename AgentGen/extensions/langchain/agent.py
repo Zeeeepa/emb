@@ -30,7 +30,7 @@ from agentgen.extensions.langchain.tools import (
 from .graph import create_react_agent
 
 if TYPE_CHECKING:
-    from codegen import Codebase
+    from agentgen import Codebase
 
 
 def create_codebase_agent(

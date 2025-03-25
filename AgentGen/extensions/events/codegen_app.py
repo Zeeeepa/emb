@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 
 from agentgen.configs.models.codebase import CodebaseConfig
 from agentgen.configs.models.secrets import SecretsConfig
-from codegen.sdk.core.codebase import Codebase
+from agentgen.sdk.core.codebase import Codebase
 from agentgen.shared.logging.get_logger import get_logger
 
 from .github import GitHub
