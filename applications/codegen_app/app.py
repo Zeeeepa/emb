@@ -3,7 +3,7 @@ import logging
 import modal
 from codegen import CodegenApp
 from agentgen import CodeAgent
-from codegenagentgen.extensions.github.types.events.pull_request import PullRequestLabeledEvent
+from agentgen.extensions.github.types.events.pull_request import PullRequestLabeledEvent
 from agentgen.extensions.linear.types import LinearEvent
 from agentgen.extensions.slack.types import SlackEvent
 from agentgen.extensions.tools.github.create_pr_comment import create_pr_comment
