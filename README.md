@@ -41,17 +41,15 @@ __all__ = ["Codebase", "CodegenApp", "Function", "ProgrammingLanguage", "functio
 
 And the past version had:
 ```python
-from codegen.agents.code_agent import CodeAgent
-# from codegen.extensions.index.file_index import FileIndex
-# from codegen.extensions.langchain.agent import create_agent_with_tools, create_codebase_agent
+from agentgen import CodeAgent
+from codegen import Codebase
 __all__ = ["CodeAgent", "Codebase", "CodegenApp", "Function", "ProgrammingLanguage", "function"]
 ```
 
 The output will show what was removed:
 ```python
-from codegen.agents.code_agent import CodeAgent
-# from codegen.extensions.index.file_index import FileIndex
-# from codegen.extensions.langchain.agent import create_agent_with_tools, create_codebase_agent
+from agentgen import CodeAgent
+from codegen import Codebase
 
 __all__ = ['CodeAgent']
 ```

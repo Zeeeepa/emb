@@ -1,4 +1,5 @@
-from agents.code_agent import CodeAgent
+from AgentGen.agents.code_agent import CodeAgent
+from AgentGen.codebase import Codebase
 
 
 # from AgentGen.extensions.index.file_index import FileIndex
