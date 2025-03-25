@@ -61,7 +61,7 @@ def pr_review_agent(event: PullRequestLabeledEvent) -> None:
     # Pull a subset of SWE bench
     repo_str = f"{event.organization.login}/{event.repository.name}"
     codebase = Codebase.from_repo(repo_str, language="python", secrets=SecretsConfig(github_token=os.environ["GITHUB_TOKEN"]))
-    review_atention_message = "CodegenBot is starting to review the PR please wait..."
+    review_atention_message = "analyzer is starting to review the PR please wait..."
     comment = codebase._op.create_pr_comment(event.number, review_atention_message)
     # Define tools first
     pr_tools = [
