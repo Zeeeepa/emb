@@ -1,16 +1,16 @@
 from github import Github
-from codegen.extensions.github.types.events.pull_request import PullRequestUnlabeledEvent
+from agentgen.extensions.github.types.events.pull_request import PullRequestUnlabeledEvent
 from logging import getLogger
 
 import os
 
 from codegen import Codebase
 
-from codegen.extensions.github.types.events.pull_request import PullRequestLabeledEvent
+from agentgen.extensions.github.types.events.pull_request import PullRequestLabeledEvent
 from codegen.configs.models.secrets import SecretsConfig
 from codegen import CodeAgent
 
-from codegen.extensions.langchain.tools import (
+from agentgen.extensions.langchain.tools import (
     # Github
     GithubViewPRTool,
     GithubCreatePRCommentTool,

@@ -1,5 +1,5 @@
 import logging
-from codegen.extensions.github.types.pull_request import PullRequestLabeledEvent
+from agentgen.extensions.github.types.pull_request import PullRequestLabeledEvent
 
 from codegen.sdk.core.codebase import Codebase
 

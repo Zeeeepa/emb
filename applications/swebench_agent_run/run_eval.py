@@ -6,11 +6,11 @@ import uuid
 import modal
 import click
 import time
-from codegen.extensions.swebench.enums import SWEBenchDataset, SWEBenchLiteSubset
+from agentgen.extensions.swebench.enums import SWEBenchDataset, SWEBenchLiteSubset
 from constants import DATASET_DICT
-from codegen.extensions.swebench.harness import run_agent_on_entry
-from codegen.extensions.swebench.utils import SweBenchExample, get_swe_bench_examples
-from codegen.extensions.swebench.report import generate_report
+from agentgen.extensions.swebench.harness import run_agent_on_entry
+from agentgen.extensions.swebench.utils import SweBenchExample, get_swe_bench_examples
+from agentgen.extensions.swebench.report import generate_report
 from codegen.sdk.core.codebase import Codebase
 
 PREDS_DNAME = Path(__file__).parent / "predictions"

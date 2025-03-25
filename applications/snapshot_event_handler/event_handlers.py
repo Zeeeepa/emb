@@ -1,9 +1,9 @@
-from codegen.agents.code_agent import CodeAgent
-from codegen.extensions.events.codegen_app import CodegenApp
-from codegen.extensions.linear.types import LinearEvent
-from codegen.extensions.slack.types import SlackEvent
-from codegen.extensions.events.modal.base import CodebaseEventsApp, EventRouterMixin
-from codegen.extensions.github.types.pull_request import PullRequestLabeledEvent
+from agentgen.agents.code_agent import CodeAgent
+from agentgen.extensions.events.codegen_app import CodegenApp
+from agentgen.extensions.linear.types import LinearEvent
+from agentgen.extensions.slack.types import SlackEvent
+from agentgen.extensions.events.modal.base import CodebaseEventsApp, EventRouterMixin
+from agentgen.extensions.github.types.pull_request import PullRequestLabeledEvent
 from pr_tasks import lint_for_dev_import_violations
 from typing import Literal
 from dotenv import load_dotenv
