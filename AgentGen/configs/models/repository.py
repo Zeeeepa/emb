@@ -1,6 +1,6 @@
 import os
 
-from codegen.configs.models.base_config import BaseConfig
+from agentgen.configs.models.base_config import BaseConfig
 
 
 class RepositoryConfig(BaseConfig):

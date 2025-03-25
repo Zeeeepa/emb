@@ -7,8 +7,8 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.prompt import Prompt
 
-from codegen.extensions.langchain.agent import create_agent_with_tools
-from codegen.extensions.langchain.tools import (
+from agentgen.extensions.langchain.agent import create_agent_with_tools
+from agentgen.extensions.langchain.tools import (
     CreateFileTool,
     DeleteFileTool,
     EditFileTool,

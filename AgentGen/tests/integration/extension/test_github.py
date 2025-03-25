@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from codegen.extensions.tools.github import search, view_pr
+from agentgen.extensions.tools.github import search, view_pr
 from codegen.sdk.core.codebase import Codebase
 
 

@@ -8,7 +8,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
-from codegen.extensions.langchain.llm import LLM
+from agentgen.extensions.langchain.llm import LLM
 
 
 @pytest.fixture

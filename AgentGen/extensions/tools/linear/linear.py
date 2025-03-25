@@ -5,7 +5,7 @@ from typing import ClassVar
 import requests
 from pydantic import Field
 
-from codegen.extensions.linear.linear_client import LinearClient
+from agentgen.extensions.linear.linear_client import LinearClient
 
 from ..observation import Observation
 

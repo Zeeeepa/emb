@@ -2,7 +2,7 @@ from enum import IntEnum, auto
 
 from pydantic import Field
 
-from codegen.configs.models.base_config import BaseConfig
+from agentgen.configs.models.base_config import BaseConfig
 
 
 class PinkMode(IntEnum):

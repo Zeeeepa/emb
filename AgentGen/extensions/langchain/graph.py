@@ -20,11 +20,11 @@ from langgraph.graph import END, START
 from langgraph.graph.state import CompiledGraph, StateGraph
 from langgraph.pregel import RetryPolicy
 
-from codegen.agents.utils import AgentConfig
-from codegen.extensions.langchain.llm import LLM
-from codegen.extensions.langchain.prompts import SUMMARIZE_CONVERSATION_PROMPT
-from codegen.extensions.langchain.utils.custom_tool_node import CustomToolNode
-from codegen.extensions.langchain.utils.utils import get_max_model_input_tokens
+from agentgen.agents.utils import AgentConfig
+from agentgen.extensions.langchain.llm import LLM
+from agentgen.extensions.langchain.prompts import SUMMARIZE_CONVERSATION_PROMPT
+from agentgen.extensions.langchain.utils.custom_tool_node import CustomToolNode
+from agentgen.extensions.langchain.utils.utils import get_max_model_input_tokens
 
 
 def manage_messages(existing: list[AnyMessage], updates: Union[list[AnyMessage], dict]) -> list[AnyMessage]:

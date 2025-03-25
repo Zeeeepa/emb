@@ -1,8 +1,8 @@
 import pytest
 from slack_sdk import WebClient
 
-from codegen.extensions.events.codegen_app import CodegenApp
-from codegen.extensions.events.slack import SlackEvent
+from agentgen.extensions.events.codegen_app import CodegenApp
+from agentgen.extensions.events.slack import SlackEvent
 
 
 @pytest.fixture

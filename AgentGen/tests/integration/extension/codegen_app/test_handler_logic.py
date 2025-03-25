@@ -5,11 +5,11 @@ import pytest
 from uvicorn.config import Config
 from uvicorn.server import Server
 
-from codegen.extensions.events.client import CodegenClient
-from codegen.extensions.events.codegen_app import CodegenApp
-from codegen.extensions.github.types.events.pull_request import PullRequestLabeledEvent
-from codegen.extensions.linear.types import LinearEvent
-from codegen.extensions.slack.types import SlackEvent
+from agentgen.extensions.events.client import CodegenClient
+from agentgen.extensions.events.codegen_app import CodegenApp
+from agentgen.extensions.github.types.events.pull_request import PullRequestLabeledEvent
+from agentgen.extensions.linear.types import LinearEvent
+from agentgen.extensions.slack.types import SlackEvent
 
 
 @pytest.fixture

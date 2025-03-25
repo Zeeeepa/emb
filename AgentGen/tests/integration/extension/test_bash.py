@@ -2,7 +2,7 @@
 
 import time
 
-from codegen.extensions.tools.bash import run_bash_command
+from agentgen.extensions.tools.bash import run_bash_command
 
 
 def test_run_bash_command() -> None:

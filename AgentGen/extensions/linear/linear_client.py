@@ -5,8 +5,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from codegen.extensions.linear.types import LinearComment, LinearIssue, LinearTeam, LinearUser
-from codegen.shared.logging.get_logger import get_logger
+from agentgen.extensions.linear.types import LinearComment, LinearIssue, LinearTeam, LinearUser
+from agentgen.shared.logging.get_logger import get_logger
 
 logger = get_logger(__name__)
 
