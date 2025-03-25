@@ -38,10 +38,10 @@ def handle_labeled(event: PullRequestLabeledEvent):
     #     channel="C08DPPSL1CG",
     #     text=f"PR #{event.number} labeled with: {event.label.name}",
     # )
-    if event.label.name == "Codegen":
+    if event.label.name == "analyzer":
         app.slack.client.chat_postMessage(
             channel="C08DPPSL1CG",
-            text=f"PR #{event.number} labeled with: {event.label.name}, waking up CodegenBot and starting review",
+            text=f"PR #{event.number} labeled with: {event.label.name}, waking up AnalyzerBot and starting review",
         )
 
         logger.info(f"PR ID: {event.pull_request.id}")
@@ -55,7 +55,7 @@ def handle_unlabeled(event: PullRequestUnlabeledEvent):
     logger.info("unlabeled")
     logger.info(event.action)
     logger.info(event.label.name)
-    if event.label.name == "Codegen":
+    if event.label.name == "analyzer":
         remove_bot_comments(event)
 
 
