@@ -1,10 +1,10 @@
 """Demo implementation of an agent with Codegen tools."""
 
 from codegen import Codebase
-from codegen.extensions.langchain.graph import create_react_agent
-from codegen.extensions.langchain.llm import LLM
-from codegen.extensions.langchain.prompts import REASONER_SYSTEM_MESSAGE
-from codegen.extensions.langchain.tools import (
+from agentgen.extensions.langchain.graph import create_react_agent
+from agentgen.extensions.langchain.llm import LLM
+from agentgen.extensions.langchain.prompts import REASONER_SYSTEM_MESSAGE
+from agentgen.extensions.langchain.tools import (
     CommitTool,
     CreateFileTool,
     DeleteFileTool,
