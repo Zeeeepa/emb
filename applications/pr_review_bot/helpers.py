@@ -37,7 +37,7 @@ def remove_bot_comments(event: PullRequestUnlabeledEvent):
         for comment in comments:
             logger.info("removing comment")
             logger.info(comment.user.login)
-            if comment.user.login == "codegen-team":
+            if comment.user.login == "analyzer":
                 comment.delete()
     reviews = pr.get_reviews()
 
@@ -45,7 +45,7 @@ def remove_bot_comments(event: PullRequestUnlabeledEvent):
         for review in reviews:
             logger.info("removing review")
             logger.info(review.user.login)
-            if review.user.login == "codegen-team":
+            if review.user.login == "analyzer":
                 review.delete()
 
     issue_comments = pr.get_issue_comments()
@@ -53,7 +53,7 @@ def remove_bot_comments(event: PullRequestUnlabeledEvent):
         for comment in issue_comments:
             logger.info("removing comment")
             logger.info(comment.user.login)
-            if comment.user.login == "codegen-team":
+            if comment.user.login == "analyzer":
                 comment.delete()
 
 
