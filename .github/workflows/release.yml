@@ -1,0 +1,123 @@
+name: Build & Release
+
+on:
+  workflow_call:
+    inputs:
+      release-tag:
+        required: true
+        type: string
+        description: Tag to release
+  # TODO(CG-10758): create if it does not exist
+  # workflow_dispatch:
+  #   inputs:
+  #     tag:
+  #       required: true
+  #       type: string
+  #       description: Tag to release
+  push:
+    tags:
+      - v*
+  pull_request:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build 3.${{ matrix.python }} ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [
+          ubuntu-latest,
+          ubuntu-22.04-arm, # https://github.com/actions/partner-runner-images/issues/37 https://github.com/orgs/community/discussions/148648#discussioncomment-12099554
+          macos-latest,
+          macos-14-large
+        ]
+        python: [
+          12,
+          13,
+        ]
+
+    steps:
+      - name: Github context
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: echo "$GITHUB_CONTEXT"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release-tag || github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.event.repository.full_name }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5.4
+        id: setup-uv
+        with:
+          enable-cache: false
+          prune-cache: false
+          python-version: 3.${{ matrix.python }}
+          version: '0.5.24'
+          cache-suffix: 3.${{ matrix.python }}
+
+      - name: Fetch tags
+        if: ${{ inputs.release-tag || startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          git branch
+          git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+
+      # TODO: add cbuildwheel cache
+      - name: Build wheel
+        uses: pypa/cibuildwheel@v2.23.1
+        env:
+          CIBW_BUILD: "*cp3${{ matrix.python }}*"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-3.${{ matrix.python }}
+          path: ./wheelhouse/*.whl
+
+  release:
+    if: ${{ inputs.release-tag || startsWith(github.ref, 'refs/tags/') }}
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # grants permission to create a release on github
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup backend
+        uses: ./.github/actions/setup-environment
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+          pattern: wheels-*
+
+      - name: Release PyPI
+        uses: ./.github/actions/release-pypi
+        with:
+          pypi-token: ${{ secrets.PYPI_TOKEN }}
+
+      - name: Github release
+        id: github-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release-tag || github.ref_name }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Slack notification
+        if: always()
+        uses: ./.github/actions/release-slack-bot
+        with:
+          release-tag: ${{ inputs.release-tag || github.ref_name }}
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
