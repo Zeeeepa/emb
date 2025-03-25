@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from codegen.configs.constants import SESSION_FILE
+from agentgen.configs.constants import SESSION_FILE
 
 
 class SessionManager:

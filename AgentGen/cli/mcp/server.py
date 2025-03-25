@@ -6,8 +6,8 @@ from agentgen.cli.api.client import RestAPI
 from agentgen.cli.mcp.agent.docs_expert import create_sdk_expert_agent
 from agentgen.cli.mcp.resources.system_prompt import SYSTEM_PROMPT
 from cagentgen.cli.mcp.resources.system_setup_instructions import SETUP_INSTRUCTIONS
-from codegen.sdk.core.codebase import Codebase
-from codegen.shared.enums.programming_language import ProgrammingLanguage
+from agentgen.sdk.core.codebase import Codebase
+from agentgen.shared.enums.programming_language import ProgrammingLanguage
 
 # Initialize FastMCP server
 
