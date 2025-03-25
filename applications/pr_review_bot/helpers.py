@@ -8,7 +8,7 @@ from codegen import Codebase
 
 from agentgen.extensions.github.types.events.pull_request import PullRequestLabeledEvent
 from codegen.configs.models.secrets import SecretsConfig
-from codegen import CodeAgent
+from agentgen import CodeAgent
 
 from agentgen.extensions.langchain.tools import (
     # Github
