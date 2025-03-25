@@ -4,4 +4,4 @@ from typing import Any, Callable, TypeVar
 
 from fastapi import Request
 
-from AgentGen.extensions.github.types.events.base import GitHubEvent
+from agentgen.extensions.github.types.events.base import GitHubEvent

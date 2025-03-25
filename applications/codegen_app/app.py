@@ -1,5 +1,6 @@
 import logging
 
 import modal
-from AgentGen import CodeAgent, CodegenApp
-from AgentGen.extensions.github.types.events.pull_request import PullRequestLabeledEvent
+from agentgen import CodeAgent
+from codegen import Codebase
+from agentgen.extensions.github.types.events.pull_request import PullRequestLabeledEvent
