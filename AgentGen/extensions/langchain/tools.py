@@ -32,7 +32,7 @@ from agentgen.extensions.tools.search import search
 from agentgen.extensions.tools.search_files_by_name import search_files_by_name
 from agentgen.extensions.tools.semantic_edit import semantic_edit
 from agentgen.extensions.tools.semantic_search import semantic_search
-from agentgen.sdk.core.codebase import Codebase
+from codegen.sdk.core.codebase import Codebase
 
 from ..tools import (
     commit,
