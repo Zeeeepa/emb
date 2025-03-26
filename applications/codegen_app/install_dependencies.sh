@@ -6,10 +6,24 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 EMB_ROOT="$(realpath "$SCRIPT_DIR/../..")"
 AGENTGEN_DIR="$EMB_ROOT/AgentGen"
 CODEGEN_DIR="$EMB_ROOT/codegen"
+AGENTGEN_LOWERCASE_DIR="$EMB_ROOT/agentgen"
 
 echo "Installing from directories:"
 echo "- AgentGen: $AGENTGEN_DIR"
 echo "- Codegen: $CODEGEN_DIR"
+
+# Create symbolic link from agentgen to AgentGen if it doesn't exist
+if [ ! -e "$AGENTGEN_LOWERCASE_DIR" ]; then
+    echo "Creating symbolic link from agentgen to AgentGen..."
+    ln -s "$AGENTGEN_DIR" "$AGENTGEN_LOWERCASE_DIR"
+    if [ $? -eq 0 ]; then
+        echo "Successfully created symbolic link"
+    else
+        echo "Warning: Failed to create symbolic link, but continuing with installation"
+    fi
+elif [ ! -L "$AGENTGEN_LOWERCASE_DIR" ]; then
+    echo "Warning: $AGENTGEN_LOWERCASE_DIR exists but is not a symbolic link"
+fi
 
 # Install AgentGen in development mode
 if [ -d "$AGENTGEN_DIR" ]; then

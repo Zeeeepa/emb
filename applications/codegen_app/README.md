@@ -2,6 +2,65 @@
 
 A versatile application that integrates with Slack, GitHub, and Linear to provide AI-powered code assistance, repository analysis, PR suggestions, and issue tracking.
 
+## Installation
+
+### Prerequisites
+
+- Python 3.10+
+- Modal CLI (`pip install modal`)
+- Git
+
+### Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Zeeeepa/emb.git
+   cd emb
+   ```
+
+2. Make the installation and deployment scripts executable:
+   ```bash
+   chmod +x applications/codegen_app/install_dependencies.sh
+   chmod +x applications/codegen_app/local_deploy.sh
+   ```
+
+3. Install dependencies:
+   ```bash
+   cd applications/codegen_app
+   ./install_dependencies.sh
+   ```
+
+4. Deploy the app:
+   ```bash
+   ./local_deploy.sh
+   ```
+
+## Troubleshooting
+
+### ModuleNotFoundError: No module named 'agentgen'
+
+If you encounter this error, it's likely due to a case-sensitivity issue between the directory name `AgentGen` and the package name `agentgen`. The installation script should create a symbolic link to fix this, but if it fails, you can create it manually:
+
+```bash
+ln -s ~/emb/AgentGen ~/emb/agentgen
+```
+
+Then try deploying again:
+
+```bash
+./local_deploy.sh
+```
+
+### Other Import Issues
+
+If you're still having import issues, make sure your PYTHONPATH includes both the codegen and agentgen directories:
+
+```bash
+export PYTHONPATH=$PYTHONPATH:~/emb/AgentGen:~/emb/codegen:~/emb
+```
+
+Then try deploying again.
+
 ## Features
 
 - **Slack Integration**: Respond to mentions with AI-powered code assistance
@@ -51,6 +110,7 @@ OPENAI_API_KEY="your_openai_api_key"
 SLACK_BOT_TOKEN="your_slack_bot_token"
 SLACK_SIGNING_SECRET="your_slack_signing_secret"
 SLACK_NOTIFICATION_CHANNEL="your_slack_channel_id"
+
 
 # Linear configuration
 LINEAR_API_KEY="your_linear_api_key"
@@ -166,3 +226,4 @@ If you encounter import errors during deployment, try the following steps:
    - Installation issues: Make sure the packages are installed correctly
 
 After deployment, update your webhook URLs to use the Modal endpoints.
+

@@ -7,8 +7,6 @@ EMB_ROOT="$(realpath "$SCRIPT_DIR/../..")"
 AGENTGEN_DIR="$EMB_ROOT/AgentGen"
 CODEGEN_DIR="$EMB_ROOT/codegen"
 
-# Set up Python path to include both codegen and agentgen
-export PYTHONPATH="$PYTHONPATH:$AGENTGEN_DIR:$CODEGEN_DIR"
 
 # Print Python path for debugging
 echo "Python path: $PYTHONPATH"

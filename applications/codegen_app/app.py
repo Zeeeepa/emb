@@ -23,7 +23,7 @@ try:
         PullRequestReviewRequestedEvent,
         PullRequestUnlabeledEvent
     )
-    # Linear imports removed
+
     from agentgen.extensions.slack.types import SlackEvent
     from agentgen.extensions.tools.github.create_pr_comment import create_pr_comment
     from agentgen.extensions.langchain.tools import (
@@ -31,7 +31,6 @@ try:
         GithubCreatePRCommentTool,
         GithubCreatePRReviewCommentTool,
         GithubCreatePRTool,
-        # Linear tools removed
         ViewFileTool,
         ListDirectoryTool,
         RipGrepTool,
@@ -483,7 +482,6 @@ def create_advanced_code_agent(codebase: Codebase):
             GithubCreatePRCommentTool,
             GithubCreatePRReviewCommentTool,
             GithubCreatePRTool,
-            # Linear tools removed
         )
         from langchain_core.messages import SystemMessage
         
@@ -507,8 +505,6 @@ def create_advanced_code_agent(codebase: Codebase):
             GithubCreatePRCommentTool(codebase),
             GithubCreatePRReviewCommentTool(codebase),
             GithubCreatePRTool(codebase),
-            
-            # Linear tools removed
         ]
         
         # Create agent with enhanced tools
@@ -557,7 +553,6 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str):
             SemanticSearchTool,
             RevealSymbolTool,
             GithubViewPRTool,
-            # Linear tools removed
         )
         from agentgen.extensions.langchain.graph import create_react_agent
         from langchain_core.messages import SystemMessage
@@ -588,7 +583,6 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str):
             SemanticSearchTool(codebase),
             RevealSymbolTool(codebase),
             GithubViewPRTool(codebase),
-            # Linear tools removed
         ]
         
         # Create enhanced system message
