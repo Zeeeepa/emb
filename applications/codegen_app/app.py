@@ -683,7 +683,7 @@ def fastapi_app():
     
     # Now import the required modules
     from agentgen.extensions.events.client import EventClient
-    from fastapi import FastAPI
+    from fastapi import FastAPI, Request
     
     # Create the FastAPI app
     logger.info("Starting coder FastAPI app")
@@ -691,6 +691,13 @@ def fastapi_app():
     
     # Set up event handlers
     event_client = EventClient()
+    
+    # Add Slack events endpoint
+    @app.post("/slack/events")
+    async def slack_events(request: Request):
+        logger.info("[FASTAPI] Received Slack event")
+        payload = await request.json()
+        return await event_client.handle_slack_event(payload)
     
     # Return the app
     return app
