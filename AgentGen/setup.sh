@@ -14,6 +14,51 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}=== AgentGen Setup ===${NC}"
 
+# Check if running as root for system package installation
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${YELLOW}Note: Some system dependencies may require sudo privileges.${NC}"
+    echo -e "${YELLOW}You may be prompted for your password.${NC}"
+fi
+
+# Install system dependencies
+echo -e "${YELLOW}Checking and installing system dependencies...${NC}"
+
+# Detect OS
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+else
+    OS=$(uname -s)
+fi
+
+case $OS in
+    ubuntu|debian|linuxmint)
+        echo -e "${YELLOW}Detected Debian/Ubuntu-based system.${NC}"
+        echo -e "${YELLOW}Updating package lists...${NC}"
+        sudo apt-get update -qq
+        
+        echo -e "${YELLOW}Installing required packages...${NC}"
+        sudo apt-get install -y -qq python3 python3-pip python3-venv python3.12-venv build-essential libssl-dev libffi-dev python3-dev git
+        ;;
+    fedora|centos|rhel)
+        echo -e "${YELLOW}Detected Fedora/CentOS/RHEL system.${NC}"
+        sudo dnf update -y -q
+        sudo dnf install -y python3 python3-pip python3-devel gcc openssl-devel libffi-devel git
+        ;;
+    darwin)
+        echo -e "${YELLOW}Detected macOS.${NC}"
+        if ! command -v brew &> /dev/null; then
+            echo -e "${YELLOW}Homebrew not found. Installing Homebrew...${NC}"
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        fi
+        brew update
+        brew install python3 openssl git
+        ;;
+    *)
+        echo -e "${YELLOW}Unsupported OS. You may need to install dependencies manually.${NC}"
+        ;;
+esac
+
 # Check if Python is installed
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}Error: Python 3 is not installed. Please install Python 3.9 or higher.${NC}"
