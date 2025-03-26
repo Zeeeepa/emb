@@ -14,7 +14,6 @@ authors = [
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -34,8 +33,16 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["agents", "cli", "configs", "extensions", "tests"]
+packages = ["agentgen"]
 package-dir = {"" = "."}
+
+[tool.setuptools.package-data]
+agentgen = ["**/*.py"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agents*", "cli*", "configs*", "extensions*"]
+namespaces = false
 
 [tool.black]
 line-length = 120
