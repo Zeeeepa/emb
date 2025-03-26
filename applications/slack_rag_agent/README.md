@@ -1,8 +1,10 @@
-# Slack RAG Agent for Codebase Q&A
+# Enhanced Slack RAG Agent for Codebase Research
 
-A powerful Slack bot that provides comprehensive answers to questions about codebases using RAG (Retrieval-Augmented Generation) and multi-agent techniques inspired by MindSearch.
+A powerful Slack bot that provides comprehensive answers to questions about codebases using advanced RAG (Retrieval-Augmented Generation) techniques, academic research integration, and collaborative features.
 
 ## Features
+
+### Core Features
 
 - **Dual-Index RAG**: Uses both file-level and code-level indices for comprehensive context retrieval
 - **Multi-Agent Architecture**: Combines code analysis with web search for complex queries
@@ -12,41 +14,80 @@ A powerful Slack bot that provides comprehensive answers to questions about code
 - **Repository Switching**: Dynamically switch between different repositories
 - **Index Refreshing**: Update indices on demand to reflect the latest code changes
 
+### Advanced Features
+
+- **Academic Research Integration**: Searches academic papers and formal documentation
+- **Code Visualization**: Generates descriptions of how code could be visualized
+- **User Personalization**: Maintains user profiles with preferences and topics of interest
+- **Collaborative Research Sessions**: Enables multiple users to work together on research questions
+- **Feedback Collection**: Gathers and stores user feedback to improve future responses
+- **Memory and Caching**: Remembers previous research to avoid duplicating work
+
 ## Architecture
 
-The system consists of three main components:
+The system consists of several integrated components:
 
 1. **SlackRAGAgent**: Core RAG agent for code-specific questions
    - Builds and maintains file and code indices
    - Retrieves relevant code context
    - Generates answers using LLM with code context
 
-2. **WebSearchAgent**: Specialized agent for external information
+2. **EnhancedResearchAssistant**: Advanced research capabilities
+   - Breaks down complex queries into sub-questions
+   - Combines code analysis, web search, and academic research
+   - Personalizes responses based on user preferences
+   - Generates code visualizations
+
+3. **CollaborativeResearchSession**: Team-based research
+   - Manages collaborative research sessions
+   - Tracks contributions from multiple users
+   - Synthesizes insights into comprehensive answers
+
+4. **WebSearchAgent**: Specialized agent for external information
    - Breaks down queries into focused sub-queries
    - Searches the web for relevant information
    - Synthesizes search results into coherent answers
-
-3. **MultiAgentCoordinator**: Orchestrates the entire system
-   - Creates research plans for complex queries
-   - Delegates sub-questions to appropriate agents
-   - Synthesizes results from multiple agents
 
 ## Usage
 
 The Slack bot responds to mentions with answers about the codebase. Special commands include:
 
-- `@bot use repo owner/repo` - Switch to a different repository
-- `@bot refresh index` - Rebuild the indices for the current repository
-- `@bot deep research on [topic]` - Trigger the multi-agent system for comprehensive research
+### Research Commands
 
-For complex research queries, include keywords like "deep", "comprehensive", or "research" to automatically trigger the multi-agent system.
+- `@bot research [question]` - Research a question using code analysis and web search
+- `@bot set repo [owner/repo]` - Switch to a different repository
+- `@bot refresh index` - Rebuild the indices for the current repository
+
+### Personalization Commands
+
+- `@bot set preference [name] to [value]` - Update your preferences
+  - `code_detail_level`: low, medium, high
+  - `include_academic_sources`: true, false
+  - `visualization_enabled`: true, false
+- `@bot add topic [topic]` - Add a topic of interest to your profile
+- `@bot feedback on [query]: [feedback]` - Provide feedback on a research result
+
+### Collaborative Research Commands
+
+- `@bot start session on [question]` - Start a new collaborative research session
+- `@bot contribute to session [id] [insights]` - Add your insights to a session
+- `@bot session status [id]` - Check the status of a research session
+- `@bot finalize session [id]` - Generate a final answer for a session
+- `@bot show session results [id]` - View the results of a completed session
+- `@bot list sessions` - List all active research sessions
+
+### Help Command
+
+- `@bot help` - Show available commands and usage information
+
+For complex research queries, include keywords like "research", "investigate", or "analyze" to automatically trigger the enhanced research system.
 
 ## Deployment
 
 The application is deployed as a serverless Modal app:
 
 ```bash
-modal deploy applications/slack_rag_agent/modal_app.py
+modal deploy applications/slack_rag_agent/enhanced_modal_app.py
 ```
 
 ### Environment Variables
@@ -78,3 +119,6 @@ The key innovation is combining MindSearch's web search capabilities with Codege
 - Implement feedback mechanisms to improve responses over time
 - Add support for code generation and automated fixes
 - Integrate with CI/CD systems for automated code reviews
+- Support for more visualization types (interactive diagrams, etc.)
+- Enhanced collaborative features (voting on contributions, etc.)
+- Integration with version control systems for historical context
