@@ -7,11 +7,6 @@ EMB_ROOT="$(realpath "$SCRIPT_DIR/../..")"
 AGENTGEN_DIR="$EMB_ROOT/AgentGen"
 CODEGEN_DIR="$EMB_ROOT/codegen"
 
-# Create symbolic link from agentgen to AgentGen
-bash "$SCRIPT_DIR/fix_agentgen_symlink.sh"
-
-# Set up Python path to include both codegen and agentgen
-export PYTHONPATH="$PYTHONPATH:$EMB_ROOT:$AGENTGEN_DIR:$CODEGEN_DIR"
 
 # Print Python path for debugging
 echo "Python path: $PYTHONPATH"

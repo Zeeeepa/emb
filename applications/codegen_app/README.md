@@ -110,15 +110,120 @@ OPENAI_API_KEY="your_openai_api_key"
 SLACK_BOT_TOKEN="your_slack_bot_token"
 SLACK_SIGNING_SECRET="your_slack_signing_secret"
 SLACK_NOTIFICATION_CHANNEL="your_slack_channel_id"
+
+
+# Linear configuration
+LINEAR_API_KEY="your_linear_api_key"
 ```
 
-## Development
+## Installation
 
-To make changes to the app:
+### Local Development
 
-1. Edit the files in `applications/codegen_app/`
-2. Run `./local_deploy.sh` to deploy your changes
+Install the required dependencies:
 
-## License
+```bash
+# Install from requirements.txt
+pip install -r requirements.txt
 
-This project is licensed under the terms of the MIT license.
+# Or install packages individually
+pip install git+https://github.com/codegen-sh/codegen-sdk.git@6a0e101718c247c01399c60b7abf301278a41786
+pip install git+https://github.com/Zeeeepa/emb.git#subdirectory=AgentGen
+pip install openai anthropic fastapi[standard] slack_sdk pygithub modal
+```
+
+For development with local packages:
+
+```bash
+# Make the install script executable
+chmod +x install_dependencies.sh
+
+# Run the install script
+./install_dependencies.sh
+```
+
+## Run Locally
+
+Spin up the server:
+
+```bash
+codegen serve
+```
+
+Expose with ngrok for webhook testing:
+
+```bash
+ngrok http 8000
+```
+
+Configure webhook URLs:
+
+- Slack: `{ngrok_url}/slack/events`
+- GitHub: `{ngrok_url}/github/events`
+- Linear: `{ngrok_url}/linear/events`
+
+## Deploy to Modal
+
+Deploy as a Modal function:
+
+```bash
+# Make sure you have Modal CLI installed
+pip install modal
+
+# Deploy the application using the deployment script
+chmod +x deploy_modal.sh
+./deploy_modal.sh
+```
+
+The deployment script sets up the proper Python path to include both `codegen` and `agentgen` packages, which is necessary for the Modal deployment to work correctly.
+
+### Troubleshooting Modal Deployment
+
+If you encounter import errors during deployment, try the following steps:
+
+1. **Ensure packages are installed locally**:
+   ```bash
+   # Install both packages in development mode
+   cd ~/emb/AgentGen && pip install -e . && cd -
+   cd ~/emb/codegen && pip install -e . && cd -
+   ```
+
+2. **Check Python path**:
+   ```bash
+   # The deploy_modal.sh script sets this automatically
+   export PYTHONPATH=$PYTHONPATH:~/emb/AgentGen:~/emb/codegen
+   ```
+
+3. **Verify imports work locally**:
+   ```bash
+   python -c "import agentgen; import codegen; print('Imports successful!')"
+   ```
+
+4. **Check Modal image configuration**:
+   The app.py file is configured to install these packages during deployment:
+
+   ```python
+   # In app.py
+   base_image = (
+       modal.Image.debian_slim(python_version="3.13")
+       .apt_install("git")
+       .pip_install(
+           # =====[ Codegen ]=====
+           f"git+{REPO_URL}@{COMMIT_ID}",
+           # =====[ AgentGen ]=====
+           "git+https://github.com/Zeeeepa/emb.git#subdirectory=AgentGen",
+           # ... other dependencies
+       )
+       .run_function(verify_agentgen_installation)
+   )
+   ```
+
+   The `verify_agentgen_installation` function checks if the agentgen package is properly installed in the Modal environment.
+
+5. **Common issues**:
+   - Case sensitivity: Make sure the directory name matches the import name (AgentGen vs agentgen)
+   - Path issues: Ensure the Python path includes the correct directories
+   - Installation issues: Make sure the packages are installed correctly
+
+After deployment, update your webhook URLs to use the Modal endpoints.
+
