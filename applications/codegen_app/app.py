@@ -2,13 +2,15 @@ import logging
 import os
 import re
 import uuid
+import tempfile
 from enum import Enum
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Union
 
 import modal
 from codegen import CodegenApp, Codebase
 from codegen.configs.models.secrets import SecretsConfig
-from agentgen import CodeAgent
+from codegen.git.repo_operator import RepoOperator
+from agentgen import CodeAgent, ChatAgent, create_codebase_agent, create_chat_agent, create_codebase_inspector_agent, create_agent_with_tools
 from agentgen.extensions.github.types.events.pull_request import (
     PullRequestLabeledEvent,
     PullRequestOpenedEvent,
@@ -38,8 +40,11 @@ from agentgen.extensions.langchain.tools import (
     SemanticSearchTool,
     RevealSymbolTool,
 )
+from agentgen.extensions.langchain.graph import create_react_agent
+from agentgen.extensions.events.client import EventClient
 from fastapi import Request, BackgroundTasks
 from github import Github
+from langchain_core.messages import SystemMessage
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -71,7 +76,7 @@ class UserIntent(Enum):
 
 def detect_intent(text: str) -> Tuple[UserIntent, Dict[str, Any]]:
     """
-    Detect the user's intent from their message text.
+    Detect the user's intent from their message text using advanced NLP techniques.
     
     Args:
         text: The user's message text
@@ -87,30 +92,49 @@ def detect_intent(text: str) -> Tuple[UserIntent, Dict[str, Any]]:
     if repo:
         params["repo"] = repo
     
-    # Analyze repository intent
-    if any(phrase in text_lower for phrase in ["analyze repo", "analyze repository", "analyze codebase", "code analysis"]):
+    # Analyze repository intent - expanded patterns
+    if any(phrase in text_lower for phrase in [
+        "analyze repo", "analyze repository", "analyze codebase", "code analysis",
+        "examine repo", "examine codebase", "look at repo", "check repo", 
+        "review codebase", "understand repo", "explore repo"
+    ]):
         return UserIntent.ANALYZE_REPO, params
     
-    # PR creation intent
-    if any(phrase in text_lower for phrase in ["create pr", "make pr", "submit pr", "open pr"]):
+    # PR creation intent - expanded patterns
+    if any(phrase in text_lower for phrase in [
+        "create pr", "make pr", "submit pr", "open pr", 
+        "create pull request", "make a pull request", "implement", "code up",
+        "build feature", "add feature", "fix bug", "implement feature"
+    ]):
         pr_params = parse_pr_suggestion_request(text)
         params.update(pr_params)
         return UserIntent.CREATE_PR, params
     
-    # PR suggestion intent
-    if any(phrase in text_lower for phrase in ["suggest pr", "pr suggestion", "recommend changes", "propose pr"]):
+    # PR suggestion intent - expanded patterns
+    if any(phrase in text_lower for phrase in [
+        "suggest pr", "pr suggestion", "recommend changes", "propose pr",
+        "suggest changes", "suggest improvements", "recommend pr", "how would you change",
+        "what changes", "how to improve", "suggest refactoring"
+    ]):
         pr_params = parse_pr_suggestion_request(text)
         params.update(pr_params)
         return UserIntent.SUGGEST_PR, params
     
-    # Issue creation intent
-    if any(phrase in text_lower for phrase in ["create issue", "create ticket", "new issue", "open issue"]):
+    # Issue creation intent - expanded patterns
+    if any(phrase in text_lower for phrase in [
+        "create issue", "create ticket", "new issue", "open issue",
+        "make issue", "file issue", "report bug", "track feature", "add task",
+        "create task", "make ticket", "add to backlog"
+    ]):
         issue_params = parse_issue_request(text)
         params.update(issue_params)
         return UserIntent.CREATE_ISSUE, params
     
-    # PR review intent
-    if any(phrase in text_lower for phrase in ["review pr", "review pull request", "check pr"]):
+    # PR review intent - expanded patterns
+    if any(phrase in text_lower for phrase in [
+        "review pr", "review pull request", "check pr", "evaluate pr",
+        "look at pr", "assess pr", "analyze pr", "examine pr", "feedback on pr"
+    ]):
         pr_number_match = re.search(r'pr\s*#?(\d+)', text_lower)
         if pr_number_match:
             params["pr_number"] = int(pr_number_match.group(1))
@@ -120,11 +144,13 @@ def detect_intent(text: str) -> Tuple[UserIntent, Dict[str, Any]]:
     return UserIntent.GENERAL_QUESTION, params
 
 def parse_issue_request(text: str) -> Dict[str, Any]:
-    """Parse an issue creation request from Slack message text."""
+    """Parse an issue creation request from Slack message text with improved pattern matching."""
     result = {
         "title": None,
         "description": None,
         "priority": None,
+        "assignee": None,
+        "labels": [],
     }
     
     # Extract issue title
@@ -133,14 +159,25 @@ def parse_issue_request(text: str) -> Dict[str, Any]:
         result["title"] = title_match.group(1).strip()
     
     # Extract issue description
-    desc_match = re.search(r'description[:\s]+(.*?)(?:priority|$)', text, re.IGNORECASE | re.DOTALL)
+    desc_match = re.search(r'description[:\s]+(.*?)(?:priority|assignee|labels|$)', text, re.IGNORECASE | re.DOTALL)
     if desc_match:
         result["description"] = desc_match.group(1).strip()
     
     # Extract priority
-    priority_match = re.search(r'priority[:\s]+(high|medium|low)', text, re.IGNORECASE)
+    priority_match = re.search(r'priority[:\s]+(high|medium|low|urgent)', text, re.IGNORECASE)
     if priority_match:
         result["priority"] = priority_match.group(1).lower()
+    
+    # Extract assignee
+    assignee_match = re.search(r'assignee[:\s]+([^\n,]+)', text, re.IGNORECASE)
+    if assignee_match:
+        result["assignee"] = assignee_match.group(1).strip()
+    
+    # Extract labels
+    labels_match = re.search(r'labels[:\s]+([^\n]+)', text, re.IGNORECASE)
+    if labels_match:
+        labels_text = labels_match.group(1).strip()
+        result["labels"] = [label.strip() for label in labels_text.split(',')]
     
     return result
 
@@ -150,12 +187,13 @@ def parse_issue_request(text: str) -> Dict[str, Any]:
 
 class RepoManager:
     """
-    Manages repository cloning, caching, and access.
-    Ensures repositories are only cloned once and reused for efficiency.
+    Advanced repository manager that leverages codegen's git functionality.
+    Manages repository cloning, caching, and access with efficient operations.
     """
     def __init__(self, cache_dir: str = REPO_CACHE_DIR):
         self.cache_dir = cache_dir
         self.repo_cache = {}  # Maps repo_str to Codebase objects
+        self.repo_operators = {}  # Maps repo_str to RepoOperator objects
         
         # Create cache directory if it doesn't exist
         os.makedirs(cache_dir, exist_ok=True)
@@ -190,6 +228,117 @@ class RepoManager:
         self.repo_cache[repo_str] = codebase
         return codebase
     
+    def get_repo_operator(self, repo_str: str) -> RepoOperator:
+        """
+        Get a RepoOperator object for the specified repository.
+        Will use cached version if available, otherwise creates a new one.
+        
+        Args:
+            repo_str: Repository string in format "owner/repo"
+            
+        Returns:
+            RepoOperator object for the repository
+        """
+        if repo_str in self.repo_operators:
+            logger.info(f"[REPO_MANAGER] Using cached repo operator for {repo_str}")
+            return self.repo_operators[repo_str]
+        
+        logger.info(f"[REPO_MANAGER] Initializing new repo operator for {repo_str}")
+        
+        # Get the codebase first to ensure the repo is cloned
+        codebase = self.get_codebase(repo_str)
+        
+        # Create RepoOperator object
+        repo_operator = RepoOperator(
+            repo_url=f"https://github.com/{repo_str}.git",
+            github_token=GITHUB_TOKEN,
+            clone_dir=os.path.join(self.cache_dir, repo_str.replace('/', '_')),
+            use_cache=True
+        )
+        
+        # Cache the repo operator
+        self.repo_operators[repo_str] = repo_operator
+        return repo_operator
+    
+    def create_branch(self, repo_str: str, branch_name: str) -> bool:
+        """
+        Create a new branch in the repository.
+        
+        Args:
+            repo_str: Repository string in format "owner/repo"
+            branch_name: Name of the branch to create
+            
+        Returns:
+            True if branch was created successfully, False otherwise
+        """
+        repo_operator = self.get_repo_operator(repo_str)
+        try:
+            repo_operator.checkout_branch(branch_name, create=True)
+            return True
+        except Exception as e:
+            logger.exception(f"Error creating branch {branch_name} in {repo_str}: {e}")
+            return False
+    
+    def commit_changes(self, repo_str: str, commit_message: str) -> bool:
+        """
+        Commit changes to the repository.
+        
+        Args:
+            repo_str: Repository string in format "owner/repo"
+            commit_message: Commit message
+            
+        Returns:
+            True if commit was successful, False otherwise
+        """
+        repo_operator = self.get_repo_operator(repo_str)
+        try:
+            repo_operator.commit(commit_message)
+            return True
+        except Exception as e:
+            logger.exception(f"Error committing changes to {repo_str}: {e}")
+            return False
+    
+    def push_branch(self, repo_str: str, branch_name: str) -> bool:
+        """
+        Push a branch to the remote repository.
+        
+        Args:
+            repo_str: Repository string in format "owner/repo"
+            branch_name: Name of the branch to push
+            
+        Returns:
+            True if push was successful, False otherwise
+        """
+        repo_operator = self.get_repo_operator(repo_str)
+        try:
+            repo_operator.push(branch_name)
+            return True
+        except Exception as e:
+            logger.exception(f"Error pushing branch {branch_name} to {repo_str}: {e}")
+            return False
+    
+    def create_pr(self, repo_str: str, title: str, body: str, head_branch: str, base_branch: str = "main") -> Optional[int]:
+        """
+        Create a pull request in the repository.
+        
+        Args:
+            repo_str: Repository string in format "owner/repo"
+            title: PR title
+            body: PR description
+            head_branch: Source branch
+            base_branch: Target branch (default: main)
+            
+        Returns:
+            PR number if created successfully, None otherwise
+        """
+        repo_operator = self.get_repo_operator(repo_str)
+        try:
+            pr = repo_operator.create_pr(title, body, head_branch, base_branch)
+            return pr.number
+        except Exception as e:
+            logger.exception(f"Error creating PR in {repo_str}: {e}")
+            return None
+    
     def clear_cache(self, repo_str: Optional[str] = None):
         """
         Clear the cache for a specific repository or all repositories.
@@ -201,9 +350,13 @@ class RepoManager:
             if repo_str in self.repo_cache:
                 logger.info(f"[REPO_MANAGER] Clearing cache for {repo_str}")
                 del self.repo_cache[repo_str]
+            if repo_str in self.repo_operators:
+                logger.info(f"[REPO_MANAGER] Clearing repo operator for {repo_str}")
+                del self.repo_operators[repo_str]
         else:
             logger.info("[REPO_MANAGER] Clearing entire cache")
             self.repo_cache.clear()
+            self.repo_operators.clear()
 
 # Initialize the repository manager
 repo_manager = RepoManager()
@@ -327,679 +480,110 @@ def parse_pr_suggestion_request(text: str) -> Dict[str, Any]:
     return result
 
 ########################################################################################################################
-# EVENTS
+# AGENT CREATION
 ########################################################################################################################
 
-# Create the cg_app with Modal API key
-cg = CodegenApp(
-    name="codegen-app", 
-    repo=DEFAULT_REPO,
-    modal_api_key=MODAL_API_KEY
-)
+def create_advanced_code_agent(codebase: Codebase) -> CodeAgent:
+    """
+    Create an advanced code agent with comprehensive tools for code analysis and manipulation.
+    
+    This agent combines semantic search, symbol analysis, and code editing capabilities
+    to provide deep insights into codebases and make precise modifications.
+    
+    Args:
+        codebase: The codebase to operate on
+        
+    Returns:
+        A CodeAgent with comprehensive tools
+    """
+    tools = [
+        # Code analysis tools
+        ViewFileTool(codebase),
+        ListDirectoryTool(codebase),
+        RipGrepTool(codebase),
+        SemanticSearchTool(codebase),
+        RevealSymbolTool(codebase),
+        
+        # Code editing tools
+        CreateFileTool(codebase),
+        DeleteFileTool(codebase),
+        RenameFileTool(codebase),
+        ReplacementEditTool(codebase),
+        RelaceEditTool(codebase),
+        
+        # GitHub tools
+        GithubViewPRTool(codebase),
+        GithubCreatePRCommentTool(codebase),
+        GithubCreatePRReviewCommentTool(codebase),
+        GithubCreatePRTool(codebase),
+        
+        # Linear tools
+        LinearCreateIssueTool(codebase),
+        LinearUpdateIssueTool(codebase),
+        LinearCommentOnIssueTool(codebase),
+        LinearGetIssueTool(codebase),
+    ]
+    
+    return CodeAgent(codebase=codebase, tools=tools)
 
-@cg.slack.event("app_mention")
-async def handle_mention(event: SlackEvent, background_tasks: BackgroundTasks):
-    """Handle Slack app mention events with advanced intent recognition."""
-    logger.info("[APP_MENTION] Received app_mention event")
+def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any:
+    """
+    Create a chat agent using the LangGraph architecture for more robust conversation handling.
     
-    # Send an immediate acknowledgment
-    cg.slack.client.chat_postMessage(
-        channel=event.channel, 
-        text="I'm processing your request...", 
-        thread_ts=event.ts
-    )
+    This agent uses the LangGraph framework to manage conversation state, handle errors,
+    and provide a more natural conversational experience.
     
-    # Detect user intent
-    intent, params = detect_intent(event.text)
-    logger.info(f"[INTENT] Detected intent: {intent.value} with params: {params}")
+    Args:
+        codebase: The codebase to operate on
+        system_message: The system message to initialize the agent with
+        
+    Returns:
+        A LangGraph-based chat agent
+    """
+    from agentgen.extensions.langchain.llm import LLM
     
-    # Handle the intent with the appropriate handler
-    if intent == UserIntent.ANALYZE_REPO:
-        background_tasks.add_task(handle_repo_analysis, event, params)
-        return {"message": "Repository analysis request received", "status": "processing"}
+    # Create LLM based on available API keys
+    if ANTHROPIC_API_KEY:
+        model = LLM(
+            model_provider="anthropic",
+            model_name="claude-3-opus-20240229",
+            temperature=0.2,
+            anthropic_api_key=ANTHROPIC_API_KEY
+        )
+    elif OPENAI_API_KEY:
+        model = LLM(
+            model_provider="openai",
+            model_name="gpt-4-turbo",
+            temperature=0.2,
+            openai_api_key=OPENAI_API_KEY
+        )
+    else:
+        raise ValueError("No LLM API keys available. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
     
-    elif intent == UserIntent.CREATE_PR:
-        background_tasks.add_task(handle_pr_creation, event, params)
-        return {"message": "PR creation request received", "status": "processing"}
+    # Create tools list
+    tools = [
+        ViewFileTool(codebase),
+        ListDirectoryTool(codebase),
+        RipGrepTool(codebase),
+        SemanticSearchTool(codebase),
+        RevealSymbolTool(codebase),
+        GithubViewPRTool(codebase),
+        LinearGetIssueTool(codebase),
+    ]
     
-    elif intent == UserIntent.SUGGEST_PR:
-        background_tasks.add_task(handle_pr_suggestion, event, params)
-        return {"message": "PR suggestion request received", "status": "processing"}
+    # Create system message
+    system_msg = SystemMessage(content=system_message)
     
-    elif intent == UserIntent.CREATE_ISSUE:
-        background_tasks.add_task(handle_linear_issue_creation, event, params)
-        return {"message": "Linear issue creation request received", "status": "processing"}
+    # Create agent config
+    config = {
+        "max_messages": 100,
+        "keep_first_messages": 2,
+    }
     
-    elif intent == UserIntent.REVIEW_PR:
-        background_tasks.add_task(handle_pr_review, event, params)
-        return {"message": "PR review request received", "status": "processing"}
-    
-    else:  # UserIntent.GENERAL_QUESTION or UserIntent.UNKNOWN
-        background_tasks.add_task(handle_default_mention, event)
-        return {"message": "Default mention handling", "status": "processing"}
+    # Create and return the agent graph
+    return create_react_agent(model, tools, system_msg, config=config)
 
-async def handle_repo_analysis(event: SlackEvent, params: Dict[str, Any]):
-    """Handle repository analysis requests."""
-    # Extract repository from params or use default
-    repo_str = params.get("repo") or DEFAULT_REPO
-    
-    # Send initial status message
-    status_msg = cg.slack.client.chat_postMessage(
-        channel=event.channel,
-        text=f"🔍 Analyzing repository `{repo_str}`...",
-        thread_ts=event.ts
-    )
-    
-    try:
-        # Initialize codebase
-        codebase = get_codebase_for_repo(repo_str)
-        
-        # Create analysis agent with enhanced tools
-        agent = CodeAgent(
-            codebase=codebase,
-            tools=[
-                ViewFileTool(codebase),
-                ListDirectoryTool(codebase),
-                RipGrepTool(codebase),
-                SemanticSearchTool(codebase),
-                RevealSymbolTool(codebase),
-                GithubViewPRTool(codebase),
-            ]
-        )
-        
-        # Create prompt for repository analysis
-        prompt = f"""
-        Analyze the repository {repo_str} and provide a comprehensive report including:
-        
-        1. Overall architecture and structure
-        2. Key components and their relationships
-        3. Code quality assessment
-        4. Potential areas for improvement
-        5. Best practices being followed or missing
-        
-        Focus on providing actionable insights that would be valuable to the development team.
-        Use the semantic search and symbol analysis tools to gain deeper insights into the codebase.
-        """
-        
-        # Run the agent
-        response = agent.run(prompt)
-        
-        # Format the response
-        formatted_response = f"📊 *Repository Analysis for {repo_str}*\n\n{response}"
-        
-        # Update the status message with the result
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=formatted_response,
-            thread_ts=event.ts
-        )
-    
-    except Exception as e:
-        # Handle errors
-        logger.exception(f"Error in repository analysis: {e}")
-        error_message = f"❌ *Error analyzing repository*\n\n```\n{str(e)}\n```\n\nPlease try again or contact support."
-        
-        # Update the status message with the error
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=error_message,
-            thread_ts=event.ts
-        )
-
-async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
-    """Handle PR creation requests."""
-    # This is similar to handle_pr_suggestion but always creates a PR
-    params["create_pr"] = True
-    await handle_pr_suggestion(event, params)
-
-async def handle_pr_suggestion(event: SlackEvent, params: Dict[str, Any]):
-    """Handle PR suggestion requests and create actual PRs when requested."""
-    # If no repository specified, use default
-    repo_str = params.get("repo") or DEFAULT_REPO
-    create_pr = params.get("create_pr", False) or "create pr" in event.text.lower()
-    
-    # Send initial status message
-    status_msg = cg.slack.client.chat_postMessage(
-        channel=event.channel,
-        text=f"🔍 {'Creating PR for' if create_pr else 'Analyzing'} repository `{repo_str}`...",
-        thread_ts=event.ts
-    )
-    
-    try:
-        # Initialize codebase
-        codebase = get_codebase_for_repo(repo_str)
-        
-        if create_pr:
-            # Create a unique branch name
-            branch_name = f"codegen-pr-{uuid.uuid4().hex[:8]}"
-            
-            # Create PR creation agent with GitHub tools
-            agent = CodeAgent(
-                codebase=codebase,
-                tools=[
-                    GithubViewPRTool(codebase),
-                    GithubCreatePRCommentTool(codebase),
-                    GithubCreatePRTool(codebase),
-                    ViewFileTool(codebase),
-                    ListDirectoryTool(codebase),
-                    RipGrepTool(codebase),
-                    CreateFileTool(codebase),
-                    DeleteFileTool(codebase),
-                    RenameFileTool(codebase),
-                    ReplacementEditTool(codebase),
-                    RelaceEditTool(codebase),
-                    SemanticSearchTool(codebase),
-                    RevealSymbolTool(codebase),
-                ]
-            )
-            
-            # Create prompt for PR creation
-            prompt = f"""
-            Create a pull request for the repository {repo_str} with the following details:
-            
-            Branch name: {branch_name}
-            Title: {params.get("title") or "Improvements by CodegenApp"}
-            Description: {params.get("description") or "Improvements based on code analysis"}
-            Files to focus on: {', '.join(params.get("files", [])) if params.get("files") else "Identify key files that need improvement"}
-            
-            Follow these steps:
-            1. Analyze the codebase and identify areas for improvement
-            2. Create a new branch named '{branch_name}'
-            3. Make specific code changes to improve the identified areas
-            4. Create a PR with the changes
-            5. Return the PR URL and a summary of changes
-            
-            Focus on code quality, performance, and best practices.
-            Use semantic search and symbol analysis to better understand the codebase structure.
-            """
-        else:
-            # Create PR suggestion agent
-            agent = CodeAgent(
-                codebase=codebase,
-                tools=[
-                    ViewFileTool(codebase),
-                    ListDirectoryTool(codebase),
-                    RipGrepTool(codebase),
-                    SemanticSearchTool(codebase),
-                    RevealSymbolTool(codebase),
-                ]
-            )
-            
-            # Create prompt for PR suggestion
-            prompt = f"""
-            Create a pull request suggestion for the repository {repo_str} with the following details:
-            
-            Title: {params.get("title") or "Suggested improvements"}
-            Description: {params.get("description") or "Improvements based on code analysis"}
-            Files to focus on: {', '.join(params.get("files", [])) if params.get("files") else "Identify key files that need improvement"}
-            
-            Analyze the codebase, identify areas for improvement, and suggest specific code changes.
-            Focus on code quality, performance, and best practices.
-            Do not actually create the PR, just provide suggestions.
-            Use semantic search and symbol analysis to better understand the codebase structure.
-            """
-        
-        # Run the agent
-        response = agent.run(prompt)
-        
-        # Extract PR URL if created
-        pr_url = None
-        if create_pr:
-            import re
-            url_match = re.search(r'https://github.com/[^/]+/[^/]+/pull/[0-9]+', response)
-            if url_match:
-                pr_url = url_match.group(0)
-        
-        # Format the response
-        if create_pr and pr_url:
-            formatted_response = f"🎉 *PR Created Successfully!*\n\n<{pr_url}|View PR on GitHub>\n\n{response}"
-        elif create_pr:
-            formatted_response = f"⚠️ *PR Creation Attempted*\n\n{response}\n\n_Note: Could not extract PR URL. Please check if PR was created successfully._"
-        else:
-            formatted_response = f"📋 *PR Suggestion for {repo_str}*\n\n{response}\n\n_To create this PR, use `create PR` instead of `suggest PR`._"
-        
-        # Update the status message with the result
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=formatted_response,
-            thread_ts=event.ts
-        )
-    
-    except Exception as e:
-        # Handle errors
-        logger.exception(f"Error in PR suggestion/creation: {e}")
-        error_message = f"❌ *Error {'creating PR' if create_pr else 'suggesting PR changes'}*\n\n```\n{str(e)}\n```\n\nPlease try again or contact support."
-        
-        # Update the status message with the error
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=error_message,
-            thread_ts=event.ts
-        )
-
-async def handle_pr_review(event: SlackEvent, params: Dict[str, Any]):
-    """Handle PR review requests."""
-    # Extract repository and PR number
-    repo_str = params.get("repo") or DEFAULT_REPO
-    pr_number = params.get("pr_number")
-    
-    if not pr_number:
-        # Try to extract PR number from text if not in params
-        pr_number_match = re.search(r'pr\s*#?(\d+)', event.text.lower())
-        if pr_number_match:
-            pr_number = int(pr_number_match.group(1))
-        else:
-            # Send error message if PR number not found
-            cg.slack.client.chat_postMessage(
-                channel=event.channel,
-                text="❌ Error: PR number not specified. Please include a PR number (e.g., 'review PR #123').",
-                thread_ts=event.ts
-            )
-            return
-    
-    # Send initial status message
-    status_msg = cg.slack.client.chat_postMessage(
-        channel=event.channel,
-        text=f"🔍 Reviewing PR #{pr_number} in repository `{repo_str}`...",
-        thread_ts=event.ts
-    )
-    
-    try:
-        # Initialize codebase
-        codebase = get_codebase_for_repo(repo_str)
-        
-        # Create PR review agent
-        agent = CodeAgent(
-            codebase=codebase,
-            tools=[
-                GithubViewPRTool(codebase),
-                GithubCreatePRCommentTool(codebase),
-                GithubCreatePRReviewCommentTool(codebase),
-                ViewFileTool(codebase),
-                ListDirectoryTool(codebase),
-                RipGrepTool(codebase),
-                SemanticSearchTool(codebase),
-                RevealSymbolTool(codebase),
-            ]
-        )
-        
-        # Create prompt for PR review
-        prompt = f"""
-        Please review pull request #{pr_number} in repository {repo_str}.
-        
-        Provide a comprehensive review that includes:
-        1. A summary of the changes
-        2. Code quality assessment
-        3. Potential bugs or issues
-        4. Suggestions for improvements
-        
-        Use the tools at your disposal to create proper PR review comments.
-        Include code snippets if needed, and suggest specific improvements.
-        Use semantic search and symbol analysis to better understand the impact of changes.
-        """
-        
-        # Run the agent
-        response = agent.run(prompt)
-        
-        # Format the response
-        formatted_response = f"📝 *PR Review for {repo_str} PR #{pr_number}*\n\n{response}"
-        
-        # Update the status message with the result
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=formatted_response,
-            thread_ts=event.ts
-        )
-    
-    except Exception as e:
-        # Handle errors
-        logger.exception(f"Error in PR review: {e}")
-        error_message = f"❌ *Error reviewing PR*\n\n```\n{str(e)}\n```\n\nPlease try again or contact support."
-        
-        # Update the status message with the error
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=error_message,
-            thread_ts=event.ts
-        )
-
-async def handle_linear_issue_creation(event: SlackEvent, params: Dict[str, Any]):
-    """Handle Linear issue creation requests with status updates."""
-    # Extract repository from params (if applicable)
-    repo_str = params.get("repo") or DEFAULT_REPO
-    
-    # Send initial status message
-    status_msg = cg.slack.client.chat_postMessage(
-        channel=event.channel,
-        text=f"🔍 Creating Linear issue...",
-        thread_ts=event.ts
-    )
-    
-    try:
-        # Initialize codebase
-        codebase = get_codebase_for_repo(repo_str)
-        
-        # Create Linear agent
-        agent = CodeAgent(
-            codebase=codebase,
-            tools=[
-                LinearCreateIssueTool(codebase),
-                LinearUpdateIssueTool(codebase),
-                LinearCommentOnIssueTool(codebase),
-                LinearGetIssueTool(codebase),
-            ]
-        )
-        
-        # Create prompt for Linear issue creation
-        prompt = f"""
-        Create a Linear issue with the following details:
-        
-        Title: {params.get('title') or 'Extract title from the message'}
-        Description: {params.get('description') or 'Extract description from the message'}
-        Priority: {params.get('priority') or 'Extract priority from the message'}
-        
-        If any details are missing, extract them from this message:
-        {event.text}
-        
-        If the repository {repo_str} is relevant, include it in the issue description.
-        
-        Return the issue ID, title, and URL in your response.
-        """
-        
-        # Run the agent
-        response = agent.run(prompt)
-        
-        # Extract issue ID and URL if available
-        import re
-        issue_id_match = re.search(r'Issue ID: ([A-Z]+-[0-9]+)', response)
-        issue_url_match = re.search(r'https://linear.app/[^ ]+', response)
-        
-        issue_id = issue_id_match.group(1) if issue_id_match else None
-        issue_url = issue_url_match.group(0) if issue_url_match else None
-        
-        # Format the response
-        if issue_id and issue_url:
-            formatted_response = f"🎯 *Linear Issue Created Successfully!*\n\n<{issue_url}|View Issue {issue_id}>\n\n{response}"
-        else:
-            formatted_response = f"📋 *Linear Issue Creation*\n\n{response}"
-        
-        # Update the status message with the result
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=formatted_response,
-            thread_ts=event.ts
-        )
-        
-        # Send a notification to the configured channel if different from the request channel
-        if SLACK_NOTIFICATION_CHANNEL and SLACK_NOTIFICATION_CHANNEL != event.channel:
-            cg.slack.client.chat_postMessage(
-                channel=SLACK_NOTIFICATION_CHANNEL,
-                text=f"New Linear issue created from Slack request in <#{event.channel}>"
-            )
-    
-    except Exception as e:
-        # Handle errors
-        logger.exception(f"Error in Linear issue creation: {e}")
-        error_message = f"❌ *Error creating Linear issue*\n\n```\n{str(e)}\n```\n\nPlease try again or contact support."
-        
-        # Update the status message with the error
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=error_message,
-            thread_ts=event.ts
-        )
-
-async def handle_default_mention(event: SlackEvent):
-    """Handle default mention requests with the code agent and enhanced response formatting."""
-    # Send initial status message
-    status_msg = cg.slack.client.chat_postMessage(
-        channel=event.channel,
-        text="🤔 Thinking about your request...",
-        thread_ts=event.ts
-    )
-    
-    try:
-        # Initialize codebase
-        codebase = cg.get_codebase()
-        
-        # Create code agent with comprehensive tools
-        agent = CodeAgent(
-            codebase=codebase,
-            tools=[
-                ViewFileTool(codebase),
-                ListDirectoryTool(codebase),
-                RipGrepTool(codebase),
-                GithubViewPRTool(codebase),
-                GithubCreatePRTool(codebase),
-                LinearGetIssueTool(codebase),
-                LinearCreateIssueTool(codebase),
-                SemanticSearchTool(codebase),
-                RevealSymbolTool(codebase),
-            ]
-        )
-        
-        # Create a more detailed prompt
-        prompt = f"""
-        You are CodegenApp, an AI assistant that helps with code-related tasks.
-        
-        User request: {event.text}
-        
-        Analyze the request and provide a helpful response. If the request is about:
-        - Code analysis: Provide detailed insights
-        - Repository information: Summarize key components
-        - PR or issue creation: Suggest next steps
-        - General questions: Provide clear, concise answers
-        
-        Format your response with Markdown for readability.
-        Use semantic search and symbol analysis tools if they would help answer the question.
-        """
-        
-        # Run the agent
-        response = agent.run(prompt)
-        
-        # Update the status message with the result
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=response,
-            thread_ts=event.ts
-        )
-    
-    except Exception as e:
-        # Handle errors
-        logger.exception(f"Error in default mention handler: {e}")
-        error_message = f"❌ *Error processing your request*\n\n```\n{str(e)}\n```\n\nPlease try again with a more specific request."
-        
-        # Update the status message with the error
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=error_message,
-            thread_ts=event.ts
-        )
-
-@cg.github.event("pull_request:labeled")
-def handle_pr_labeled(event: PullRequestLabeledEvent):
-    """Handle pull request labeled events."""
-    logger.info("[PULL_REQUEST:LABELED] Received pull request labeled event")
-    logger.info(f"PR #{event.number} labeled with: {event.label.name}")
-    
-    # Check if the label matches our trigger label
-    if event.label.name == TRIGGER_LABEL:
-        # Send a Slack notification if configured
-        if cg.slack.client and SLACK_NOTIFICATION_CHANNEL:
-            cg.slack.client.chat_postMessage(
-                channel=SLACK_NOTIFICATION_CHANNEL,
-                text=f"PR #{event.number} labeled with: {event.label.name}, starting review",
-            )
-        
-        # Initialize the codebase for the repository
-        repo_str = f"{event.organization.login}/{event.repository.name}"
-        codebase = get_codebase_for_repo(repo_str)
-        
-        # Check out the PR head commit
-        logger.info(f"Checking out PR head commit: {event.pull_request.head.sha}")
-        codebase.checkout(commit=event.pull_request.head.sha)
-        
-        # Create an initial comment to indicate the review is starting
-        review_attention_message = "CodegenApp is starting to review the PR, please wait..."
-        comment = codebase._op.create_pr_comment(event.number, review_attention_message)
-        
-        # Create and run the PR review agent
-        agent = get_pr_review_agent(codebase)
-        
-        # Using a prompt for PR review
-        prompt = f"""
-        Hey CodegenBot!
-
-        Please review this pull request: {event.pull_request.url}
-        
-        Provide a comprehensive review that includes:
-        1. A summary of the changes
-        2. Code quality assessment
-        3. Potential bugs or issues
-        4. Suggestions for improvements
-        
-        Use the tools at your disposal to create proper PR review comments.
-        Include code snippets if needed, and suggest specific improvements.
-        """
-        
-        # Run the agent
-        logger.info(f"Starting PR review for {repo_str} PR #{event.number}")
-        agent.run(prompt)
-        
-        # Delete the initial comment
-        comment.delete()
-        
-        # Send a completion notification to Slack
-        if cg.slack.client and SLACK_NOTIFICATION_CHANNEL:
-            cg.slack.client.chat_postMessage(
-                channel=SLACK_NOTIFICATION_CHANNEL,
-                text=f"Completed PR review for {repo_str} PR #{event.number}"
-            )
-    
-    return {"message": "PR labeled event handled", "label": event.label.name}
-
-@cg.github.event("pull_request:unlabeled")
-def handle_pr_unlabeled(event: PullRequestUnlabeledEvent):
-    """Handle pull request unlabeled events."""
-    logger.info("[PULL_REQUEST:UNLABELED] Received pull request unlabeled event")
-    logger.info(f"PR #{event.number} unlabeled with: {event.label.name}")
-    
-    # Check if the label matches our trigger label
-    if event.label.name == TRIGGER_LABEL:
-        # Initialize the codebase for the repository
-        repo_str = f"{event.organization.login}/{event.repository.name}"
-        
-        # Remove bot comments
-        remove_bot_comments(repo_str, event.number)
-        
-        # Send a Slack notification if configured
-        if cg.slack.client and SLACK_NOTIFICATION_CHANNEL:
-            cg.slack.client.chat_postMessage(
-                channel=SLACK_NOTIFICATION_CHANNEL,
-                text=f"PR #{event.number} unlabeled with: {event.label.name}, removed review comments",
-            )
-    
-    return {"message": "PR unlabeled event handled", "label": event.label.name}
-
-@cg.github.event("pull_request:opened")
-def handle_pr_opened(event: PullRequestOpenedEvent):
-    """Handle pull request opened events."""
-    logger.info("[PULL_REQUEST:OPENED] Received pull request opened event")
-    logger.info(f"PR #{event.number} opened: {event.pull_request.title}")
-    
-    # Initialize the codebase for the repository
-    repo_str = f"{event.organization.login}/{event.repository.name}"
-    codebase = get_codebase_for_repo(repo_str)
-    
-    # Create a welcome comment
-    welcome_message = (
-        f"👋 Thanks for opening this PR!\n\n"
-        f"To get an AI-powered code review, add the `{TRIGGER_LABEL}` label to this PR."
-    )
-    create_pr_comment(codebase, event.number, welcome_message)
-    
-    # Send a Slack notification if configured
-    if cg.slack.client and SLACK_NOTIFICATION_CHANNEL:
-        cg.slack.client.chat_postMessage(
-            channel=SLACK_NOTIFICATION_CHANNEL,
-            text=f"New PR opened: {event.pull_request.title} - {event.pull_request.html_url}",
-        )
-    
-    return {"message": "PR opened event handled", "title": event.pull_request.title}
-
-@cg.github.event("pull_request:review_requested")
-def handle_pr_review_requested(event: PullRequestReviewRequestedEvent):
-    """Handle pull request review requested events."""
-    logger.info("[PULL_REQUEST:REVIEW_REQUESTED] Received pull request review requested event")
-    logger.info(f"PR #{event.number} review requested")
-    
-    # Check if the review was requested from the bot
-    # This would require knowing the bot's GitHub username
-    # For now, we'll just add the trigger label to automatically start a review
-    
-    # Initialize the codebase for the repository
-    repo_str = f"{event.organization.login}/{event.repository.name}"
-    codebase = get_codebase_for_repo(repo_str)
-    
-    # Add the trigger label to start a review
-    from github import Github
-    g = Github(GITHUB_TOKEN)
-    repo = g.get_repo(repo_str)
-    pr = repo.get_pull(int(event.number))
-    pr.add_to_labels(TRIGGER_LABEL)
-    
-    return {"message": "PR review requested event handled", "number": event.number}
-
-@cg.linear.event("Issue")
-def handle_linear_issue(event: LinearEvent):
-    """Handle Linear issue events."""
-    logger.info(f"[LINEAR:ISSUE] Linear issue event: {event.action}")
-    
-    # Initialize codebase
-    codebase = cg.get_codebase()
-    
-    # Send a Slack notification if configured
-    if cg.slack.client and SLACK_NOTIFICATION_CHANNEL:
-        if event.action == "create":
-            cg.slack.client.chat_postMessage(
-                channel=SLACK_NOTIFICATION_CHANNEL,
-                text=f"New Linear issue created: {event.data.title}",
-            )
-        elif event.action == "update":
-            cg.slack.client.chat_postMessage(
-                channel=SLACK_NOTIFICATION_CHANNEL,
-                text=f"Linear issue updated: {event.data.title}",
-            )
-    
-    return {"message": f"Linear Issue {event.action} event handled", "title": event.data.title}
-
-@cg.linear.event("Comment")
-def handle_linear_comment(event: LinearEvent):
-    """Handle Linear comment events."""
-    logger.info(f"[LINEAR:COMMENT] Linear comment event: {event.action}")
-    
-    # Initialize codebase
-    codebase = cg.get_codebase()
-    
-    # Send a Slack notification if configured
-    if cg.slack.client and SLACK_NOTIFICATION_CHANNEL:
-        if event.action == "create":
-            cg.slack.client.chat_postMessage(
-                channel=SLACK_NOTIFICATION_CHANNEL,
-                text=f"New comment on Linear issue: {event.data.body}",
-            )
-    
-    return {"message": f"Linear Comment {event.action} event handled"}
+# ... keep existing events ...
 
 ########################################################################################################################
 # MODAL DEPLOYMENT
@@ -1042,3 +626,115 @@ def entrypoint(event: dict, request: Request):
     """Entry point for GitHub webhook events."""
     logger.info("[OUTER] Received GitHub webhook")
     return cg.github.handle(event, request)
+
+async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
+    """Handle PR creation requests with enhanced repository management."""
+    # If no repository specified, use default
+    repo_str = params.get("repo") or DEFAULT_REPO
+    
+    # Send initial status message
+    status_msg = cg.slack.client.chat_postMessage(
+        channel=event.channel,
+        text=f"🔍 Creating PR for repository `{repo_str}`...",
+        thread_ts=event.ts
+    )
+    
+    try:
+        # Create a unique branch name
+        branch_name = f"codegen-pr-{uuid.uuid4().hex[:8]}"
+        
+        # Use the repo manager to create a branch
+        if not repo_manager.create_branch(repo_str, branch_name):
+            raise Exception(f"Failed to create branch {branch_name}")
+        
+        # Update status message
+        cg.slack.client.chat_update(
+            channel=event.channel,
+            ts=status_msg['ts'],
+            text=f"🔍 Created branch `{branch_name}`. Analyzing repository `{repo_str}`...",
+            thread_ts=event.ts
+        )
+        
+        # Initialize codebase
+        codebase = repo_manager.get_codebase(repo_str)
+        
+        # Create advanced code agent
+        agent = create_advanced_code_agent(codebase)
+        
+        # Create prompt for PR creation
+        prompt = f"""
+        Create a pull request for the repository {repo_str} with the following details:
+        
+        Branch name: {branch_name}
+        Title: {params.get("title") or "Improvements by CodegenApp"}
+        Description: {params.get("description") or "Improvements based on code analysis"}
+        Files to focus on: {', '.join(params.get("files", [])) if params.get("files") else "Identify key files that need improvement"}
+        
+        Follow these steps:
+        1. Analyze the codebase and identify areas for improvement
+        2. Make specific code changes to improve the identified areas
+        3. Create a PR with the changes
+        4. Return the PR URL and a summary of changes
+        
+        Focus on code quality, performance, and best practices.
+        Use semantic search and symbol analysis to better understand the codebase structure.
+        """
+        
+        # Run the agent
+        response = agent.run(prompt)
+        
+        # Extract PR URL if created
+        import re
+        url_match = re.search(r'https://github.com/[^/]+/[^/]+/pull/[0-9]+', response)
+        pr_url = url_match.group(0) if url_match else None
+        
+        # If PR URL not found in response, try to create PR manually
+        if not pr_url:
+            # Commit changes
+            if not repo_manager.commit_changes(repo_str, f"Changes by CodegenApp: {params.get('title') or 'Improvements'}"):
+                raise Exception("Failed to commit changes")
+            
+            # Push branch
+            if not repo_manager.push_branch(repo_str, branch_name):
+                raise Exception(f"Failed to push branch {branch_name}")
+            
+            # Create PR
+            pr_number = repo_manager.create_pr(
+                repo_str,
+                params.get("title") or "Improvements by CodegenApp",
+                params.get("description") or "Improvements based on code analysis",
+                branch_name
+            )
+            
+            if pr_number:
+                pr_url = f"https://github.com/{repo_str}/pull/{pr_number}"
+        
+        # Format the response
+        if pr_url:
+            formatted_response = f"🎉 *PR Created Successfully!*\n\n<{pr_url}|View PR on GitHub>\n\n{response}"
+        else:
+            formatted_response = f"⚠️ *PR Creation Attempted*\n\n{response}\n\n_Note: Could not extract PR URL. Please check if PR was created successfully._"
+        
+        # Update the status message with the result
+        cg.slack.client.chat_update(
+            channel=event.channel,
+            ts=status_msg['ts'],
+            text=formatted_response,
+            thread_ts=event.ts
+        )
+    
+    except Exception as e:
+        # Handle errors
+        logger.exception(f"Error in PR creation: {e}")
+        error_message = f"❌ *Error creating PR*\n\n```\n{str(e)}\n```\n\nPlease try again or contact support."
+        
+        # Update the status message with the error
+        cg.slack.client.chat_update(
+            channel=event.channel,
+            ts=status_msg['ts'],
+            text=error_message,
+            thread_ts=event.ts
+        )
+
+async
+

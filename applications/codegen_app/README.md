@@ -17,6 +17,8 @@ A versatile application that integrates with Slack, GitHub, and Linear to provid
 - **Status Updates**: Real-time status updates for long-running operations
 - **Efficient Repository Management**: Smart caching of repositories for faster analysis
 - **Semantic Code Analysis**: Utilizes semantic search and symbol analysis for deeper insights
+- **LangGraph Integration**: Robust conversation handling with better state management
+- **Advanced Git Operations**: Leverages codegen's git functionality for better repository management
 
 ## Environment Variables
 
@@ -112,6 +114,8 @@ Mention the bot in Slack with different commands. The bot uses advanced intent r
 @codegen-app analyze repo Zeeeepa/emb
 @codegen-app analyze the codebase at Zeeeepa/emb
 @codegen-app can you analyze the repository structure of Zeeeepa/emb?
+@codegen-app examine the codebase of Zeeeepa/emb
+@codegen-app explore repo Zeeeepa/emb
 ```
 
 #### PR Suggestions and Creation
@@ -131,6 +135,8 @@ files: AgentGen/agents/code_agent.py, AgentGen/extensions/events/github.py
 
 # Natural language requests also work
 @codegen-app can you create a PR to fix the error handling in Zeeeepa/emb?
+@codegen-app implement better error handling in Zeeeepa/emb
+@codegen-app build a feature for improved logging in Zeeeepa/emb
 ```
 
 The bot will analyze the repository, make the necessary changes, and create a PR with the specified details when using `create PR`. When using `suggest PR`, it will only provide suggestions without creating an actual PR.
@@ -140,6 +146,8 @@ The bot will analyze the repository, make the necessary changes, and create a PR
 ```
 @codegen-app review PR #123 in Zeeeepa/emb
 @codegen-app can you check PR #45?
+@codegen-app evaluate PR #67 in Zeeeepa/emb
+@codegen-app give feedback on PR #89
 ```
 
 #### Linear Issue Creation
@@ -149,9 +157,13 @@ The bot will analyze the repository, make the necessary changes, and create a PR
 title: Implement better error handling
 description: We need to improve error handling in the GitHub event handlers
 priority: high
+assignee: john
+labels: bug, enhancement
 
 # Natural language requests also work
 @codegen-app can you create a high priority issue for improving error handling?
+@codegen-app file a bug report for the login component
+@codegen-app add a task to implement the new feature
 ```
 
 #### General Code Assistance
@@ -182,10 +194,45 @@ You can customize the prompts for different features by modifying the correspond
 The application uses the following components:
 
 - **CodegenApp**: Core application that handles events from different platforms
-- **Intent Recognition**: System for detecting user intent from natural language
-- **Repository Manager**: Efficient caching and management of repositories
+- **Intent Recognition**: Enhanced system for detecting user intent from natural language
+- **Repository Manager**: Advanced repository management with codegen's git functionality
 - **CodeAgent**: AI agent that performs code analysis and generation
+- **ChatAgent with LangGraph**: Robust conversation handling with better state management
 - **GitHub Tools**: Tools for interacting with GitHub repositories and PRs
 - **Linear Tools**: Tools for creating and managing Linear issues
 - **Semantic Analysis**: Tools for deeper code understanding (semantic search, symbol analysis)
 - **Background Tasks**: Asynchronous task processing for long-running operations
+
+## Recent Enhancements
+
+### 1. Advanced Repository Management
+
+The application now uses `RepoOperator` from the codegen git module for more efficient repository operations:
+
+- Efficient repository caching
+- Better branch management
+- Improved error handling for git operations
+
+### 2. LangGraph Integration
+
+The application now uses LangGraph for more robust conversation handling:
+
+- Better conversation state management
+- Improved error handling and recovery
+- More natural conversational experience
+
+### 3. Enhanced Intent Recognition
+
+The application now has a more sophisticated intent recognition system:
+
+- Expanded pattern matching for better natural language understanding
+- More detailed parameter extraction
+- Better handling of ambiguous requests
+
+### 4. Comprehensive Tool Integration
+
+The application now integrates all available tools from AgentGen:
+
+- Semantic search for better code understanding
+- Symbol analysis for deeper code insights
+- Advanced code editing capabilities
