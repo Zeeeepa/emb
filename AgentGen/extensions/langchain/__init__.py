@@ -16,6 +16,13 @@ from .tools import (
     ViewFileTool,
 )
 
+# Import new extension modules
+from . import document_loaders
+from . import vector_stores
+from . import retrievers
+from . import memory
+from . import output_parsers
+
 __all__ = [
     # Tool classes
     "CommitTool",
@@ -29,6 +36,12 @@ __all__ = [
     "ViewFileTool",
     # Helper functions
     "get_workspace_tools",
+    # Extension modules
+    "document_loaders",
+    "vector_stores",
+    "retrievers",
+    "memory",
+    "output_parsers",
 ]
 
 
