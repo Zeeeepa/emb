@@ -56,6 +56,22 @@ SLACK_NOTIFICATION_CHANNEL="your_slack_channel_id"
 LINEAR_API_KEY="your_linear_api_key"
 ```
 
+## Installation
+
+### Local Development
+
+Install the required dependencies:
+
+```bash
+# Install from requirements.txt
+pip install -r requirements.txt
+
+# Or install packages individually
+pip install git+https://github.com/codegen-sh/codegen-sdk.git@6a0e101718c247c01399c60b7abf301278a41786
+pip install git+https://github.com/Zeeeepa/AgentGen.git
+pip install openai anthropic fastapi[standard] slack_sdk pygithub linear-sdk modal
+```
+
 ## Run Locally
 
 Spin up the server:
@@ -81,10 +97,31 @@ Configure webhook URLs:
 Deploy as a Modal function:
 
 ```bash
+# Make sure you have Modal CLI installed
+pip install modal
+
+# Deploy the application
 modal deploy app.py
 ```
 
-Then update your webhook URLs to use the Modal endpoints.
+If you encounter import errors during deployment, ensure that both `codegen` and `agentgen` packages are properly installed in the Modal environment. The app.py file is configured to install these packages during deployment:
+
+```python
+# In app.py
+base_image = (
+    modal.Image.debian_slim(python_version="3.13")
+    .apt_install("git")
+    .pip_install(
+        # =====[ Codegen ]=====
+        f"git+{REPO_URL}@{COMMIT_ID}",
+        # =====[ AgentGen ]=====
+        "git+https://github.com/Zeeeepa/AgentGen.git",
+        # ... other dependencies
+    )
+)
+```
+
+After deployment, update your webhook URLs to use the Modal endpoints.
 
 ## GitHub Webhook Setup
 
