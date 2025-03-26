@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentgen"
+version = "0.1.0"
+description = "A framework for creating code agents"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Zeeeepa"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "langchain>=0.0.267",
+    "langchain-core>=0.0.10",
+    "langgraph>=0.0.15",
+    "langsmith",
+    "rich",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.0.0",
+    "mypy>=1.0.0",
+]
+
+[tool.setuptools]
+packages = ["agentgen"]
+package-dir = {"" = "."}
+
+[tool.black]
+line-length = 120
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
