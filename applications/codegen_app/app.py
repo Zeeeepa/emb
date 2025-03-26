@@ -670,7 +670,7 @@ base_image = (
 
 app = modal.App("coder")
 
-@app.function(image=base_image, secrets=[modal.Secret.from_dotenv()])
+@app.function(image=base_image)
 @modal.asgi_app()
 def fastapi_app():
     """Entry point for the FastAPI app."""
@@ -695,7 +695,7 @@ def fastapi_app():
     # Return the app
     return app
 
-@app.function(image=base_image, secrets=[modal.Secret.from_dotenv()])
+@app.function(image=base_image)
 @modal.fastapi_endpoint(method="POST")
 def entrypoint(event: dict, request: Request):
     """Entry point for GitHub webhook events."""
