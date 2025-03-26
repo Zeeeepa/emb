@@ -9,9 +9,10 @@ set -e  # Exit on error
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}=== AgentGen Setup ===${NC}"
+echo -e "${BLUE}=== AgentGen Setup ===${NC}"
 
 # Check if Python is installed
 if ! command -v python3 &> /dev/null; then
@@ -31,15 +32,38 @@ fi
 
 echo -e "${GREEN}Using Python $PYTHON_VERSION${NC}"
 
-# Create missing __init__.py files if needed
-echo -e "${YELLOW}Ensuring all directories have __init__.py files...${NC}"
+# Create missing __init__.py files
+echo -e "${YELLOW}Creating missing __init__.py files...${NC}"
 
-# Create __init__.py in github/types/events
-if [ ! -f "extensions/github/types/events/__init__.py" ]; then
-    echo "Creating extensions/github/types/events/__init__.py"
-    mkdir -p extensions/github/types/events
-    echo '"""GitHub event types."""' > extensions/github/types/events/__init__.py
-fi
+# Function to create __init__.py if it doesn't exist
+create_init_if_missing() {
+    if [ ! -f "$1/__init__.py" ]; then
+        echo -e "${YELLOW}Creating $1/__init__.py${NC}"
+        mkdir -p "$1"
+        echo "# Auto-generated __init__.py file" > "$1/__init__.py"
+    fi
+}
+
+# Create __init__.py files in all required directories
+create_init_if_missing "agents"
+create_init_if_missing "cli"
+create_init_if_missing "cli/commands"
+create_init_if_missing "cli/commands/agent"
+create_init_if_missing "cli/mcp"
+create_init_if_missing "cli/mcp/agent"
+create_init_if_missing "cli/mcp/resources"
+create_init_if_missing "configs"
+create_init_if_missing "configs/models"
+create_init_if_missing "extensions"
+create_init_if_missing "extensions/clients"
+create_init_if_missing "extensions/github"
+create_init_if_missing "extensions/github/types"
+create_init_if_missing "extensions/github/types/events"
+create_init_if_missing "extensions/langchain"
+create_init_if_missing "extensions/linear"
+create_init_if_missing "extensions/slack"
+create_init_if_missing "extensions/tools"
+create_init_if_missing "tests"
 
 # Check for virtual environment
 if [ -z "$VIRTUAL_ENV" ]; then
@@ -72,6 +96,37 @@ else
     echo -e "${GREEN}Using active virtual environment: $VIRTUAL_ENV${NC}"
 fi
 
+# Create README.md if it doesn't exist
+if [ ! -f "README.md" ]; then
+    echo -e "${YELLOW}Creating README.md...${NC}"
+    cat > README.md << EOF
+# AgentGen
+
+A framework for creating code agents.
+
+## Installation
+
+```bash
+# Install with pip
+pip install -e .
+
+# Or install with uv
+uv pip install -e .
+```
+
+## Usage
+
+```bash
+# Show version
+agentgen --version
+
+# Show help
+agentgen --help
+```
+EOF
+    echo -e "${GREEN}README.md created.${NC}"
+fi
+
 # Check if uv is installed
 if command -v uv &> /dev/null; then
     echo -e "${GREEN}Using uv for package installation...${NC}"
@@ -99,17 +154,25 @@ if [ $? -eq 0 ]; then
     
     # Test the installation
     echo -e "${YELLOW}Testing installation...${NC}"
+    if python -c "import agentgen; print(f'AgentGen version: {agentgen.__version__}')" 2>/dev/null; then
+        echo -e "${GREEN}Package import successful.${NC}"
+    else
+        echo -e "${YELLOW}Warning: Package installed but import verification failed.${NC}"
+        echo -e "${YELLOW}You may need to restart your terminal or Python interpreter.${NC}"
+    fi
+    
     if command -v agentgen &> /dev/null; then
         echo -e "${GREEN}AgentGen command is available.${NC}"
         echo -e "${YELLOW}Version information:${NC}"
         agentgen --version
     else
-        echo -e "${RED}Warning: 'agentgen' command not found in PATH.${NC}"
+        echo -e "${YELLOW}Warning: 'agentgen' command not found in PATH.${NC}"
         echo -e "${YELLOW}You may need to restart your terminal or add the bin directory to your PATH.${NC}"
     fi
     
     echo -e "${GREEN}=== Setup Complete ===${NC}"
     echo -e "${YELLOW}You can now use AgentGen by running 'agentgen' in your terminal.${NC}"
+    echo -e "${YELLOW}You can also import the package in Python with 'import agentgen'.${NC}"
 else
     echo -e "${RED}Installation failed.${NC}"
     exit 1
