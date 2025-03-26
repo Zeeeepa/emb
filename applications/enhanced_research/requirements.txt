@@ -1,0 +1,8 @@
+rich_click>=1.6.1
+rich>=13.4.2
+langchain>=0.0.267
+langchain-core>=0.0.10
+langgraph>=0.0.15
+duckduckgo-search>=3.9.9
+beautifulsoup4>=4.12.2
+aiohttp>=3.8.5
