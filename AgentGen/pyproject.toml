@@ -36,6 +36,9 @@ dev = [
 packages = ["agents", "cli", "configs", "extensions", "tests"]
 package-dir = {"" = "."}
 py-modules = ["__init__"]
+package-data = {"" = ["**/*.py"]}
+find-namespace-packages = true
+
 
 [tool.black]
 line-length = 120
