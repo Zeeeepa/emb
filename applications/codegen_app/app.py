@@ -627,7 +627,7 @@ base_image = (
         # =====[ Codegen ]=====
         f"git+{REPO_URL}@{COMMIT_ID}",
         # =====[ AgentGen ]=====
-        "git+https://github.com/Zeeeepa/AgentGen.git",
+        "git+https://github.com/Zeeeepa/emb.git#subdirectory=AgentGen",
         # =====[ Rest ]=====
         "openai>=1.1.0",
         "anthropic>=0.5.0",
