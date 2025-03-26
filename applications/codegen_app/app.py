@@ -60,7 +60,6 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 REPO_CACHE_DIR = os.getenv("REPO_CACHE_DIR", "/tmp/codegen_repos")
 
-########################################################################################################################
 # INTENT RECOGNITION
 ########################################################################################################################
 
@@ -181,7 +180,6 @@ def parse_issue_request(text: str) -> Dict[str, Any]:
     
     return result
 
-########################################################################################################################
 # REPOSITORY MANAGEMENT
 ########################################################################################################################
 
@@ -479,7 +477,6 @@ def parse_pr_suggestion_request(text: str) -> Dict[str, Any]:
     
     return result
 
-########################################################################################################################
 # AGENT CREATION
 ########################################################################################################################
 
@@ -524,7 +521,24 @@ def create_advanced_code_agent(codebase: Codebase) -> CodeAgent:
         LinearGetIssueTool(codebase),
     ]
     
-    return CodeAgent(codebase=codebase, tools=tools)
+    # Create agent with enhanced tools
+    return create_agent_with_tools(
+        codebase=codebase,
+        tools=tools,
+        system_message=SystemMessage(content="""
+        You are an expert code assistant that helps developers understand and improve their code.
+        You have access to a comprehensive set of tools for code analysis and manipulation.
+        
+        When analyzing code or suggesting changes, consider:
+        1. The overall architecture and design patterns
+        2. Dependencies between components
+        3. Potential side effects of changes
+        4. Best practices for the specific language and framework
+        5. Performance implications
+        
+        Your goal is to provide high-quality, contextually aware assistance.
+        """)
+    )
 
 def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any:
     """
@@ -560,7 +574,7 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any
     else:
         raise ValueError("No LLM API keys available. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
     
-    # Create tools list
+    # Create tools list with enhanced context understanding
     tools = [
         ViewFileTool(codebase),
         ListDirectoryTool(codebase),
@@ -571,8 +585,22 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any
         LinearGetIssueTool(codebase),
     ]
     
-    # Create system message
-    system_msg = SystemMessage(content=system_message)
+    # Create enhanced system message
+    enhanced_system_message = f"""
+    {system_message}
+    
+    You have access to advanced code analysis capabilities.
+    When analyzing code or suggesting changes, consider:
+    1. The overall architecture and design patterns
+    2. Dependencies between components
+    3. Potential side effects of changes
+    4. Best practices for the specific language and framework
+    5. Performance implications
+    
+    Your goal is to provide high-quality, contextually aware assistance.
+    """
+    
+    system_msg = SystemMessage(content=enhanced_system_message)
     
     # Create agent config
     config = {
@@ -581,11 +609,8 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any
     }
     
     # Create and return the agent graph
-    return create_react_agent(model, tools, system_msg, config=config)
+    return create_react_agent(model=model, tools=tools, system_message=system_msg, config=config)
 
-# ... keep existing events ...
-
-########################################################################################################################
 # MODAL DEPLOYMENT
 ########################################################################################################################
 # This deploys the FastAPI app to Modal
@@ -611,13 +636,13 @@ base_image = (
     )
 )
 
-app = modal.App("codegen-app")
+app = modal.App("coder")
 
 @app.function(image=base_image, secrets=[modal.Secret.from_dotenv()])
 @modal.asgi_app()
 def fastapi_app():
     """Entry point for the FastAPI app."""
-    logger.info("Starting codegen FastAPI app")
+    logger.info("Starting coder FastAPI app")
     return cg.app
 
 @app.function(image=base_image, secrets=[modal.Secret.from_dotenv()])
@@ -628,7 +653,7 @@ def entrypoint(event: dict, request: Request):
     return cg.github.handle(event, request)
 
 async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
-    """Handle PR creation requests with enhanced repository management."""
+    """Handle PR creation requests with enhanced repository management and code understanding."""
     # If no repository specified, use default
     repo_str = params.get("repo") or DEFAULT_REPO
     
@@ -641,7 +666,7 @@ async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
     
     try:
         # Create a unique branch name
-        branch_name = f"codegen-pr-{uuid.uuid4().hex[:8]}"
+        branch_name = f"coder-pr-{uuid.uuid4().hex[:8]}"
         
         # Use the repo manager to create a branch
         if not repo_manager.create_branch(repo_str, branch_name):
@@ -666,7 +691,7 @@ async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
         Create a pull request for the repository {repo_str} with the following details:
         
         Branch name: {branch_name}
-        Title: {params.get("title") or "Improvements by CodegenApp"}
+        Title: {params.get("title") or "Improvements by Coder"}
         Description: {params.get("description") or "Improvements based on code analysis"}
         Files to focus on: {', '.join(params.get("files", [])) if params.get("files") else "Identify key files that need improvement"}
         
@@ -691,7 +716,7 @@ async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
         # If PR URL not found in response, try to create PR manually
         if not pr_url:
             # Commit changes
-            if not repo_manager.commit_changes(repo_str, f"Changes by CodegenApp: {params.get('title') or 'Improvements'}"):
+            if not repo_manager.commit_changes(repo_str, f"Changes by Coder: {params.get('title') or 'Improvements'}"):
                 raise Exception("Failed to commit changes")
             
             # Push branch
@@ -701,7 +726,7 @@ async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
             # Create PR
             pr_number = repo_manager.create_pr(
                 repo_str,
-                params.get("title") or "Improvements by CodegenApp",
+                params.get("title") or "Improvements by Coder",
                 params.get("description") or "Improvements based on code analysis",
                 branch_name
             )
@@ -735,6 +760,3 @@ async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
             text=error_message,
             thread_ts=event.ts
         )
-
-async
-
