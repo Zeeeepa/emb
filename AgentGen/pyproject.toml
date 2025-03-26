@@ -34,7 +34,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["agentgen"]
+packages = ["agents", "cli", "configs", "extensions", "tests"]
 package-dir = {"" = "."}
 
 [tool.black]
