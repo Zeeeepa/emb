@@ -85,7 +85,7 @@ echo -e "${GREEN}Using Python $PYTHON_VERSION${NC}"
 # Install uv if not already installed
 if ! command -v uv &> /dev/null; then
     echo -e "${YELLOW}Installing uv package manager...${NC}"
-    curl -sSf https://astral.sh/uv/install.sh | sh
+    curl -LsSf https://astral.sh/uv/install.sh | sh
     
     # Add uv to PATH for the current session
     export PATH="$HOME/.cargo/bin:$PATH"
@@ -97,33 +97,25 @@ if ! command -v uv &> /dev/null; then
     fi
 fi
 
-# Check for virtual environment
+# Create or activate virtual environment automatically
+VENV_DIR=".venv"
 if [ -z "$VIRTUAL_ENV" ]; then
-    echo -e "${YELLOW}No active virtual environment detected.${NC}"
+    echo -e "${YELLOW}No active virtual environment detected. Creating one automatically...${NC}"
     
-    # Ask if user wants to create a virtual environment
-    read -p "Do you want to create a virtual environment? (y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${GREEN}Creating virtual environment...${NC}"
-        
-        # Check if venv module is available
-        if ! python3 -c "import venv" &> /dev/null; then
-            echo -e "${RED}Error: Python venv module is not available. Please install it first.${NC}"
-            exit 1
-        fi
-        
-        # Create virtual environment
-        python3 -m venv .venv
-        
-        # Activate virtual environment
-        echo -e "${GREEN}Activating virtual environment...${NC}"
-        source .venv/bin/activate
-        
-        echo -e "${GREEN}Virtual environment created and activated.${NC}"
-    else
-        echo -e "${YELLOW}Proceeding without virtual environment...${NC}"
+    # Check if venv module is available
+    if ! python3 -c "import venv" &> /dev/null; then
+        echo -e "${RED}Error: Python venv module is not available. Please install it first.${NC}"
+        exit 1
     fi
+    
+    # Create virtual environment
+    python3 -m venv $VENV_DIR
+    
+    # Activate virtual environment
+    echo -e "${GREEN}Activating virtual environment...${NC}"
+    source $VENV_DIR/bin/activate
+    
+    echo -e "${GREEN}Virtual environment created and activated.${NC}"
 else
     echo -e "${GREEN}Using active virtual environment: $VIRTUAL_ENV${NC}"
 fi
@@ -192,6 +184,116 @@ EOF
     echo -e "${GREEN}README.md created.${NC}"
 fi
 
+# Update pyproject.toml
+echo -e "${YELLOW}Updating pyproject.toml...${NC}"
+cat > pyproject.toml << EOF
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentgen"
+version = "0.1.0"
+authors = [
+    {name = "AgentGen Team", email = "info@example.com"},
+]
+description = "A framework for creating code agents"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "langchain>=0.0.267",
+    "langgraph>=0.0.10",
+    "openai>=0.27.0",
+    "anthropic>=0.3.0",
+    "pydantic>=2.0.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+agentgen = "cli.main:app"
+
+[tool.setuptools]
+packages = ["agents", "cli", "configs", "extensions", "tests"]
+package-dir = {"" = "."}
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+EOF
+
+# Update setup.py
+echo -e "${YELLOW}Updating setup.py...${NC}"
+cat > setup.py << EOF
+from setuptools import setup, find_packages
+
+setup(
+    name="agentgen",
+    packages=find_packages(include=["agents", "agents.*", "cli", "cli.*", "configs", "configs.*",
+                                    "extensions", "extensions.*", "tests", "tests.*"]),
+    package_dir={"": "."},
+    entry_points={
+        "console_scripts": [
+            "agentgen=cli.main:app",
+        ],
+    },
+)
+EOF
+
+# Create main.py in cli directory
+echo -e "${YELLOW}Creating cli/main.py...${NC}"
+mkdir -p cli
+cat > cli/main.py << EOF
+#!/usr/bin/env python3
+import typer
+import importlib.metadata
+
+app = typer.Typer(help="AgentGen CLI")
+
+@app.callback()
+def callback():
+    """
+    AgentGen CLI
+    """
+    pass
+
+@app.command()
+def version():
+    """Show the version of AgentGen"""
+    try:
+        version = importlib.metadata.version("agentgen")
+        typer.echo(f"agentgen version {version}")
+    except importlib.metadata.PackageNotFoundError:
+        typer.echo("agentgen version unknown (package not installed)")
+
+if __name__ == "__main__":
+    app()
+EOF
+
 # Clone and install codegen if not already installed
 CODEGEN_DIR="$HOME/LIBS/codegen"
 if [ ! -d "$CODEGEN_DIR" ]; then
@@ -204,7 +306,7 @@ else
     echo -e "${YELLOW}Updating codegen repository...${NC}"
     cd "$CODEGEN_DIR"
     git pull
-    cd -
+    cd - > /dev/null
 fi
 
 # Install codegen
@@ -213,7 +315,7 @@ cd "$CODEGEN_DIR"
 
 if command -v uv &> /dev/null; then
     echo -e "${YELLOW}Installing codegen with uv...${NC}"
-    uv pip install -e .
+    uv pip install -e . --system
     CODEGEN_INSTALL_STATUS=$?
     
     if [ $CODEGEN_INSTALL_STATUS -ne 0 ]; then
@@ -233,14 +335,14 @@ if [ $CODEGEN_INSTALL_STATUS -ne 0 ]; then
 fi
 
 # Return to AgentGen directory
-cd -
+cd - > /dev/null
 
 # Install AgentGen
 echo -e "${CYAN}=== Installing AgentGen ===${NC}"
 
 if command -v uv &> /dev/null; then
     echo -e "${YELLOW}Installing AgentGen with uv...${NC}"
-    uv pip install -e .
+    uv pip install -e . --system
     AGENTGEN_INSTALL_STATUS=$?
     
     if [ $AGENTGEN_INSTALL_STATUS -ne 0 ]; then
