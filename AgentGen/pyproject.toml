@@ -14,7 +14,6 @@ authors = [
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -36,6 +35,9 @@ dev = [
 [tool.setuptools]
 packages = ["agents", "cli", "configs", "extensions", "tests"]
 package-dir = {"" = "."}
+py-modules = ["__init__"]
+package-data = {"" = ["**/*.py"]}
+find-namespace-packages = true
 
 [tool.black]
 line-length = 120
