@@ -1,7 +1,10 @@
-from setuptools import setup
+
+from setuptools import setup, find_packages
 
 setup(
     name="agentgen",
-    packages=["agents", "cli", "configs", "extensions", "tests"],
+    packages=find_packages(include=["agents", "agents.*", "cli", "cli.*", "configs", "configs.*", 
+                                    "extensions", "extensions.*", "tests", "tests.*"]),
+
     package_dir={"": "."},
 )
