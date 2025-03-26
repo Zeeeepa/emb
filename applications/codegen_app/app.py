@@ -1,6 +1,7 @@
 import logging
 import os
-from typing import Optional
+import re
+from typing import Optional, Dict, Any, List
 
 import modal
 from codegen import CodegenApp, Codebase
@@ -12,15 +13,21 @@ from agentgen.extensions.github.types.events.pull_request import (
     PullRequestReviewRequestedEvent,
     PullRequestUnlabeledEvent
 )
-from agentgen.extensions.linear.types import LinearEvent
+from agentgen.extensions.linear.types import LinearEvent, LinearIssueCreatedEvent, LinearIssueUpdatedEvent
 from agentgen.extensions.slack.types import SlackEvent
 from agentgen.extensions.tools.github.create_pr_comment import create_pr_comment
 from agentgen.extensions.langchain.tools import (
     GithubViewPRTool,
     GithubCreatePRCommentTool,
     GithubCreatePRReviewCommentTool,
+    GithubCreatePRTool,
+    LinearCreateIssueTool,
+    LinearUpdateIssueTool,
+    LinearCommentOnIssueTool,
+    LinearGetIssueTool,
 )
-from fastapi import Request
+from fastapi import Request, BackgroundTasks
+from github import Github
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -32,17 +39,12 @@ MODAL_API_KEY = os.getenv("MODAL_API_KEY", "")
 TRIGGER_LABEL = os.getenv("TRIGGER_LABEL", "analyzer")
 SLACK_NOTIFICATION_CHANNEL = os.getenv("SLACK_NOTIFICATION_CHANNEL", "")
 DEFAULT_REPO = os.getenv("DEFAULT_REPO", "codegen-sh/Kevin-s-Adventure-Game")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 ########################################################################################################################
-# EVENTS
+# HELPER FUNCTIONS
 ########################################################################################################################
-
-# Create the cg_app with Modal API key
-cg = CodegenApp(
-    name="codegen-app", 
-    repo=DEFAULT_REPO,
-    modal_api_key=MODAL_API_KEY
-)
 
 def get_codebase_for_repo(repo_str: str) -> Codebase:
     """Initialize a codebase for a specific repository."""
@@ -61,26 +63,261 @@ def get_pr_review_agent(codebase: Codebase) -> CodeAgent:
     ]
     return CodeAgent(codebase=codebase, tools=pr_tools)
 
+def get_repo_analysis_agent(codebase: Codebase) -> CodeAgent:
+    """Create a code agent with repository analysis tools."""
+    analysis_tools = [
+        GithubViewPRTool(codebase),
+        GithubCreatePRCommentTool(codebase),
+        GithubCreatePRTool(codebase),
+    ]
+    return CodeAgent(codebase=codebase, tools=analysis_tools)
+
+def get_linear_agent(codebase: Codebase) -> CodeAgent:
+    """Create a code agent with Linear integration tools."""
+    linear_tools = [
+        LinearCreateIssueTool(codebase),
+        LinearUpdateIssueTool(codebase),
+        LinearCommentOnIssueTool(codebase),
+        LinearGetIssueTool(codebase),
+    ]
+    return CodeAgent(codebase=codebase, tools=linear_tools)
+
+def extract_repo_from_text(text: str) -> Optional[str]:
+    """Extract repository name from text using regex patterns."""
+    # Match GitHub URL patterns
+    github_url_pattern = r'https?://(?:www\.)?github\.com/([^/\s]+/[^/\s]+)'
+    url_match = re.search(github_url_pattern, text)
+    if url_match:
+        return url_match.group(1)
+    
+    # Match org/repo patterns
+    repo_pattern = r'([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+)'
+    repo_match = re.search(repo_pattern, text)
+    if repo_match:
+        return repo_match.group(1)
+    
+    return None
+
+def remove_bot_comments(repo_str: str, pr_number: int) -> None:
+    """Remove all comments made by the bot on a PR."""
+    g = Github(GITHUB_TOKEN)
+    logger.info(f"Removing bot comments from {repo_str} PR #{pr_number}")
+    
+    repo = g.get_repo(repo_str)
+    pr = repo.get_pull(int(pr_number))
+    
+    # Remove PR comments
+    comments = pr.get_comments()
+    if comments:
+        for comment in comments:
+            if comment.user.login == "codegen-app":  # Bot username
+                logger.info("Removing comment")
+                comment.delete()
+    
+    # Remove PR reviews
+    reviews = pr.get_reviews()
+    if reviews:
+        for review in reviews:
+            if review.user.login == "codegen-app":  # Bot username
+                logger.info("Removing review")
+                review.delete()
+    
+    # Remove issue comments
+    issue_comments = pr.get_issue_comments()
+    if issue_comments:
+        for comment in issue_comments:
+            if comment.user.login == "codegen-app":  # Bot username
+                logger.info("Removing comment")
+                comment.delete()
+
+def parse_pr_suggestion_request(text: str) -> Dict[str, Any]:
+    """Parse a PR suggestion request from Slack message text."""
+    result = {
+        "repo": extract_repo_from_text(text),
+        "title": None,
+        "description": None,
+        "files": [],
+    }
+    
+    # Extract PR title
+    title_match = re.search(r'title[:\s]+([^\n]+)', text, re.IGNORECASE)
+    if title_match:
+        result["title"] = title_match.group(1).strip()
+    
+    # Extract PR description
+    desc_match = re.search(r'description[:\s]+(.*?)(?:file[s]?:|$)', text, re.IGNORECASE | re.DOTALL)
+    if desc_match:
+        result["description"] = desc_match.group(1).strip()
+    
+    # Extract files to modify
+    files_match = re.search(r'file[s]?[:\s]+(.*?)(?:$)', text, re.IGNORECASE | re.DOTALL)
+    if files_match:
+        files_text = files_match.group(1).strip()
+        result["files"] = [f.strip() for f in files_text.split(',') if f.strip()]
+    
+    return result
+
+########################################################################################################################
+# EVENTS
+########################################################################################################################
+
+# Create the cg_app with Modal API key
+cg = CodegenApp(
+    name="codegen-app", 
+    repo=DEFAULT_REPO,
+    modal_api_key=MODAL_API_KEY
+)
+
 @cg.slack.event("app_mention")
-async def handle_mention(event: SlackEvent):
+async def handle_mention(event: SlackEvent, background_tasks: BackgroundTasks):
     """Handle Slack app mention events."""
     logger.info("[APP_MENTION] Received app_mention event")
-    logger.info(event)
+    
+    # Send an immediate acknowledgment
+    cg.slack.client.chat_postMessage(
+        channel=event.channel, 
+        text="I'm processing your request...", 
+        thread_ts=event.ts
+    )
+    
+    # Check for repository analysis request
+    if "analyze repo" in event.text.lower() or "analyze repository" in event.text.lower():
+        background_tasks.add_task(handle_repo_analysis, event)
+        return {"message": "Repository analysis request received", "status": "processing"}
+    
+    # Check for PR suggestion request
+    elif "create pr" in event.text.lower() or "suggest pr" in event.text.lower():
+        background_tasks.add_task(handle_pr_suggestion, event)
+        return {"message": "PR suggestion request received", "status": "processing"}
+    
+    # Check for Linear issue creation request
+    elif "create issue" in event.text.lower() or "create ticket" in event.text.lower():
+        background_tasks.add_task(handle_linear_issue_creation, event)
+        return {"message": "Linear issue creation request received", "status": "processing"}
+    
+    # Default code agent response
+    else:
+        background_tasks.add_task(handle_default_mention, event)
+        return {"message": "Default mention handling", "status": "processing"}
 
-    # Codebase
-    logger.info("[CODEBASE] Initializing codebase")
-    codebase = cg.get_codebase()
-
-    # Code Agent
-    logger.info("[CODE_AGENT] Initializing code agent")
-    agent = CodeAgent(codebase=codebase)
-
-    logger.info("[CODE_AGENT] Running code agent")
-    response = agent.run(event.text)
-
+async def handle_repo_analysis(event: SlackEvent):
+    """Handle repository analysis requests."""
+    # Extract repository from message
+    repo_str = extract_repo_from_text(event.text) or DEFAULT_REPO
+    
+    # Initialize codebase
+    codebase = get_codebase_for_repo(repo_str)
+    
+    # Create analysis agent
+    agent = get_repo_analysis_agent(codebase)
+    
+    # Create prompt for repository analysis
+    prompt = f"""
+    Analyze the repository {repo_str} and provide a comprehensive report including:
+    
+    1. Overall architecture and structure
+    2. Key components and their relationships
+    3. Code quality assessment
+    4. Potential areas for improvement
+    5. Best practices being followed or missing
+    
+    Focus on providing actionable insights that would be valuable to the development team.
+    """
+    
+    # Run the agent
+    response = agent.run(prompt)
+    
     # Send response back to Slack
-    cg.slack.client.chat_postMessage(channel=event.channel, text=response, thread_ts=event.ts)
-    return {"message": "Mentioned", "received_text": event.text, "response": response}
+    cg.slack.client.chat_postMessage(
+        channel=event.channel, 
+        text=f"*Repository Analysis for {repo_str}*\n\n{response}", 
+        thread_ts=event.ts
+    )
+
+async def handle_pr_suggestion(event: SlackEvent):
+    """Handle PR suggestion requests."""
+    # Parse the PR suggestion request
+    pr_request = parse_pr_suggestion_request(event.text)
+    
+    # If no repository specified, use default
+    repo_str = pr_request["repo"] or DEFAULT_REPO
+    
+    # Initialize codebase
+    codebase = get_codebase_for_repo(repo_str)
+    
+    # Create PR suggestion agent
+    agent = get_repo_analysis_agent(codebase)
+    
+    # Create prompt for PR suggestion
+    prompt = f"""
+    Create a pull request suggestion for the repository {repo_str} with the following details:
+    
+    Title: {pr_request["title"] or "Suggested improvements"}
+    Description: {pr_request["description"] or "Improvements based on code analysis"}
+    Files to focus on: {', '.join(pr_request["files"]) if pr_request["files"] else "Identify key files that need improvement"}
+    
+    Analyze the codebase, identify areas for improvement, and create a PR with specific code changes.
+    Focus on code quality, performance, and best practices.
+    """
+    
+    # Run the agent
+    response = agent.run(prompt)
+    
+    # Send response back to Slack
+    cg.slack.client.chat_postMessage(
+        channel=event.channel, 
+        text=f"*PR Suggestion for {repo_str}*\n\n{response}", 
+        thread_ts=event.ts
+    )
+
+async def handle_linear_issue_creation(event: SlackEvent):
+    """Handle Linear issue creation requests."""
+    # Extract repository from message (if applicable)
+    repo_str = extract_repo_from_text(event.text) or DEFAULT_REPO
+    
+    # Initialize codebase
+    codebase = get_codebase_for_repo(repo_str)
+    
+    # Create Linear agent
+    agent = get_linear_agent(codebase)
+    
+    # Create prompt for Linear issue creation
+    prompt = f"""
+    Create a Linear issue based on the following Slack message:
+    
+    {event.text}
+    
+    Extract the relevant details such as title, description, and priority.
+    If the repository {repo_str} is relevant, include it in the issue description.
+    """
+    
+    # Run the agent
+    response = agent.run(prompt)
+    
+    # Send response back to Slack
+    cg.slack.client.chat_postMessage(
+        channel=event.channel, 
+        text=f"*Linear Issue Creation*\n\n{response}", 
+        thread_ts=event.ts
+    )
+
+async def handle_default_mention(event: SlackEvent):
+    """Handle default mention requests with the code agent."""
+    # Initialize codebase
+    codebase = cg.get_codebase()
+    
+    # Create code agent
+    agent = CodeAgent(codebase=codebase)
+    
+    # Run the agent
+    response = agent.run(event.text)
+    
+    # Send response back to Slack
+    cg.slack.client.chat_postMessage(
+        channel=event.channel, 
+        text=response, 
+        thread_ts=event.ts
+    )
 
 @cg.github.event("pull_request:labeled")
 def handle_pr_labeled(event: PullRequestLabeledEvent):
@@ -154,23 +391,9 @@ def handle_pr_unlabeled(event: PullRequestUnlabeledEvent):
     if event.label.name == TRIGGER_LABEL:
         # Initialize the codebase for the repository
         repo_str = f"{event.organization.login}/{event.repository.name}"
-        codebase = get_codebase_for_repo(repo_str)
         
-        # Remove bot comments (similar to PR review bot)
-        from github import Github
-        g = Github(GITHUB_TOKEN)
-        logger.info(f"Removing bot comments from {repo_str} PR #{event.number}")
-        
-        repo = g.get_repo(repo_str)
-        pr = repo.get_pull(int(event.number))
-        
-        # Remove PR comments
-        comments = pr.get_comments()
-        if comments:
-            for comment in comments:
-                if comment.user.login == "codegen-app":  # Bot username
-                    logger.info("Removing comment")
-                    comment.delete()
+        # Remove bot comments
+        remove_bot_comments(repo_str, event.number)
         
         # Send a Slack notification if configured
         if cg.slack.client and SLACK_NOTIFICATION_CHANNEL:
@@ -231,19 +454,45 @@ def handle_pr_review_requested(event: PullRequestReviewRequestedEvent):
     return {"message": "PR review requested event handled", "number": event.number}
 
 @cg.linear.event("Issue")
-def handle_issue(event: LinearEvent):
+def handle_linear_issue(event: LinearEvent):
     """Handle Linear issue events."""
-    logger.info(f"[LINEAR:ISSUE] Issue created: {event}")
+    logger.info(f"[LINEAR:ISSUE] Linear issue event: {event.action}")
+    
+    # Initialize codebase
     codebase = cg.get_codebase()
     
     # Send a Slack notification if configured
     if cg.slack.client and SLACK_NOTIFICATION_CHANNEL:
-        cg.slack.client.chat_postMessage(
-            channel=SLACK_NOTIFICATION_CHANNEL,
-            text=f"New Linear issue created: {event.data.title}",
-        )
+        if event.action == "create":
+            cg.slack.client.chat_postMessage(
+                channel=SLACK_NOTIFICATION_CHANNEL,
+                text=f"New Linear issue created: {event.data.title}",
+            )
+        elif event.action == "update":
+            cg.slack.client.chat_postMessage(
+                channel=SLACK_NOTIFICATION_CHANNEL,
+                text=f"Linear issue updated: {event.data.title}",
+            )
     
-    return {"message": "Linear Issue event handled", "title": event.data.title}
+    return {"message": f"Linear Issue {event.action} event handled", "title": event.data.title}
+
+@cg.linear.event("Comment")
+def handle_linear_comment(event: LinearEvent):
+    """Handle Linear comment events."""
+    logger.info(f"[LINEAR:COMMENT] Linear comment event: {event.action}")
+    
+    # Initialize codebase
+    codebase = cg.get_codebase()
+    
+    # Send a Slack notification if configured
+    if cg.slack.client and SLACK_NOTIFICATION_CHANNEL:
+        if event.action == "create":
+            cg.slack.client.chat_postMessage(
+                channel=SLACK_NOTIFICATION_CHANNEL,
+                text=f"New comment on Linear issue: {event.data.body}",
+            )
+    
+    return {"message": f"Linear Comment {event.action} event handled"}
 
 ########################################################################################################################
 # MODAL DEPLOYMENT
@@ -267,6 +516,7 @@ base_image = (
         "fastapi[standard]",
         "slack_sdk",
         "pygithub",
+        "linear-sdk",
     )
 )
 
