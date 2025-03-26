@@ -8,13 +8,12 @@ version = "0.1.0"
 description = "A framework for creating code agents"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Zeeeepa"}
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -36,6 +35,7 @@ dev = [
 [tool.setuptools]
 packages = ["agents", "cli", "configs", "extensions", "tests"]
 package-dir = {"" = "."}
+py-modules = ["__init__"]
 
 [tool.black]
 line-length = 120
