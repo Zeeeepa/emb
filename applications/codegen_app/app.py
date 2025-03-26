@@ -23,7 +23,6 @@ try:
         PullRequestReviewRequestedEvent,
         PullRequestUnlabeledEvent
     )
-    from agentgen.extensions.linear.types import LinearEvent, LinearIssueCreatedEvent, LinearIssueUpdatedEvent
     from agentgen.extensions.slack.types import SlackEvent
     from agentgen.extensions.tools.github.create_pr_comment import create_pr_comment
     from agentgen.extensions.langchain.tools import (
@@ -31,10 +30,6 @@ try:
         GithubCreatePRCommentTool,
         GithubCreatePRReviewCommentTool,
         GithubCreatePRTool,
-        LinearCreateIssueTool,
-        LinearUpdateIssueTool,
-        LinearCommentOnIssueTool,
-        LinearGetIssueTool,
         ViewFileTool,
         ListDirectoryTool,
         RipGrepTool,
@@ -486,10 +481,6 @@ def create_advanced_code_agent(codebase: Codebase):
             GithubCreatePRCommentTool,
             GithubCreatePRReviewCommentTool,
             GithubCreatePRTool,
-            LinearCreateIssueTool,
-            LinearUpdateIssueTool,
-            LinearCommentOnIssueTool,
-            LinearGetIssueTool,
         )
         from langchain_core.messages import SystemMessage
         
@@ -513,12 +504,6 @@ def create_advanced_code_agent(codebase: Codebase):
             GithubCreatePRCommentTool(codebase),
             GithubCreatePRReviewCommentTool(codebase),
             GithubCreatePRTool(codebase),
-            
-            # Linear tools
-            LinearCreateIssueTool(codebase),
-            LinearUpdateIssueTool(codebase),
-            LinearCommentOnIssueTool(codebase),
-            LinearGetIssueTool(codebase),
         ]
         
         # Create agent with enhanced tools
@@ -567,7 +552,6 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str):
             SemanticSearchTool,
             RevealSymbolTool,
             GithubViewPRTool,
-            LinearGetIssueTool,
         )
         from agentgen.extensions.langchain.graph import create_react_agent
         from langchain_core.messages import SystemMessage
@@ -598,7 +582,6 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str):
             SemanticSearchTool(codebase),
             RevealSymbolTool(codebase),
             GithubViewPRTool(codebase),
-            LinearGetIssueTool(codebase),
         ]
         
         # Create enhanced system message
@@ -712,7 +695,7 @@ def fastapi_app():
     return app
 
 @app.function(image=base_image, secrets=[modal.Secret.from_dotenv()])
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def entrypoint(event: dict, request: Request):
     """Entry point for GitHub webhook events."""
     # Import here to ensure the imports work in the Modal environment
