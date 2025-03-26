@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A framework for creating code agents"
 readme = "README.md"
 requires-python = ">=3.9"
-license = "MIT"
+license = {text = "MIT"}
 authors = [
     {name = "Zeeeepa"}
 ]
@@ -36,6 +36,9 @@ dev = [
 packages = ["agents", "cli", "configs", "extensions", "tests"]
 package-dir = {"" = "."}
 py-modules = ["__init__"]
+
+[project.scripts]
+agentgen = "cli.commands.main:main"
 
 [tool.black]
 line-length = 120
