@@ -1,47 +1,58 @@
 import logging
 import os
 import re
+import sys
 import uuid
 import tempfile
 from enum import Enum
 from typing import Optional, Dict, Any, List, Tuple, Union
 
 import modal
+
+# Import codegen packages
 from codegen import CodegenApp, Codebase
 from codegen.configs.models.secrets import SecretsConfig
 from codegen.git.repo_operator.repo_operator import RepoOperator
-from agentgen import CodeAgent, ChatAgent, create_codebase_agent, create_chat_agent, create_codebase_inspector_agent, create_agent_with_tools
-from agentgen.extensions.github.types.events.pull_request import (
-    PullRequestLabeledEvent,
-    PullRequestOpenedEvent,
-    PullRequestReviewRequestedEvent,
-    PullRequestUnlabeledEvent
-)
-from agentgen.extensions.linear.types import LinearEvent, LinearIssueCreatedEvent, LinearIssueUpdatedEvent
-from agentgen.extensions.slack.types import SlackEvent
-from agentgen.extensions.tools.github.create_pr_comment import create_pr_comment
-from agentgen.extensions.langchain.tools import (
-    GithubViewPRTool,
-    GithubCreatePRCommentTool,
-    GithubCreatePRReviewCommentTool,
-    GithubCreatePRTool,
-    LinearCreateIssueTool,
-    LinearUpdateIssueTool,
-    LinearCommentOnIssueTool,
-    LinearGetIssueTool,
-    ViewFileTool,
-    ListDirectoryTool,
-    RipGrepTool,
-    CreateFileTool,
-    DeleteFileTool,
-    RenameFileTool,
-    ReplacementEditTool,
-    RelaceEditTool,
-    SemanticSearchTool,
-    RevealSymbolTool,
-)
-from agentgen.extensions.langchain.graph import create_react_agent
-from agentgen.extensions.events.client import EventClient
+
+# Import agentgen packages - we need to handle this differently for Modal deployment
+try:
+    from agentgen import CodeAgent, ChatAgent, create_codebase_agent, create_chat_agent, create_codebase_inspector_agent, create_agent_with_tools
+    from agentgen.extensions.github.types.events.pull_request import (
+        PullRequestLabeledEvent,
+        PullRequestOpenedEvent,
+        PullRequestReviewRequestedEvent,
+        PullRequestUnlabeledEvent
+    )
+    from agentgen.extensions.linear.types import LinearEvent, LinearIssueCreatedEvent, LinearIssueUpdatedEvent
+    from agentgen.extensions.slack.types import SlackEvent
+    from agentgen.extensions.tools.github.create_pr_comment import create_pr_comment
+    from agentgen.extensions.langchain.tools import (
+        GithubViewPRTool,
+        GithubCreatePRCommentTool,
+        GithubCreatePRReviewCommentTool,
+        GithubCreatePRTool,
+        LinearCreateIssueTool,
+        LinearUpdateIssueTool,
+        LinearCommentOnIssueTool,
+        LinearGetIssueTool,
+        ViewFileTool,
+        ListDirectoryTool,
+        RipGrepTool,
+        CreateFileTool,
+        DeleteFileTool,
+        RenameFileTool,
+        ReplacementEditTool,
+        RelaceEditTool,
+        SemanticSearchTool,
+        RevealSymbolTool,
+    )
+    from agentgen.extensions.langchain.graph import create_react_agent
+    from agentgen.extensions.events.client import EventClient
+except ImportError:
+    # If we're in the Modal environment, we need to ensure the package is properly imported
+    print("Failed to import agentgen directly. This is expected in Modal deployment.")
+    # We'll import these modules after the Modal image is built
+
 from fastapi import Request, BackgroundTasks
 from github import Github
 from langchain_core.messages import SystemMessage
@@ -366,42 +377,6 @@ def get_codebase_for_repo(repo_str: str) -> Codebase:
 # HELPER FUNCTIONS
 ########################################################################################################################
 
-def get_codebase_for_repo(repo_str: str) -> Codebase:
-    """Initialize a codebase for a specific repository."""
-    logger.info(f"[CODEBASE] Initializing codebase for {repo_str}")
-    return Codebase.from_repo(
-        repo_str,
-        secrets=SecretsConfig(github_token=GITHUB_TOKEN)
-    )
-
-def get_pr_review_agent(codebase: Codebase) -> CodeAgent:
-    """Create a code agent with PR review tools."""
-    pr_tools = [
-        GithubViewPRTool(codebase),
-        GithubCreatePRCommentTool(codebase),
-        GithubCreatePRReviewCommentTool(codebase),
-    ]
-    return CodeAgent(codebase=codebase, tools=pr_tools)
-
-def get_repo_analysis_agent(codebase: Codebase) -> CodeAgent:
-    """Create a code agent with repository analysis tools."""
-    analysis_tools = [
-        GithubViewPRTool(codebase),
-        GithubCreatePRCommentTool(codebase),
-        GithubCreatePRTool(codebase),
-    ]
-    return CodeAgent(codebase=codebase, tools=analysis_tools)
-
-def get_linear_agent(codebase: Codebase) -> CodeAgent:
-    """Create a code agent with Linear integration tools."""
-    linear_tools = [
-        LinearCreateIssueTool(codebase),
-        LinearUpdateIssueTool(codebase),
-        LinearCommentOnIssueTool(codebase),
-        LinearGetIssueTool(codebase),
-    ]
-    return CodeAgent(codebase=codebase, tools=linear_tools)
-
 def extract_repo_from_text(text: str) -> Optional[str]:
     """Extract repository name from text using regex patterns."""
     # Match GitHub URL patterns
@@ -480,7 +455,7 @@ def parse_pr_suggestion_request(text: str) -> Dict[str, Any]:
 # AGENT CREATION
 ########################################################################################################################
 
-def create_advanced_code_agent(codebase: Codebase) -> CodeAgent:
+def create_advanced_code_agent(codebase: Codebase):
     """
     Create an advanced code agent with comprehensive tools for code analysis and manipulation.
     
@@ -493,54 +468,82 @@ def create_advanced_code_agent(codebase: Codebase) -> CodeAgent:
     Returns:
         A CodeAgent with comprehensive tools
     """
-    tools = [
-        # Code analysis tools
-        ViewFileTool(codebase),
-        ListDirectoryTool(codebase),
-        RipGrepTool(codebase),
-        SemanticSearchTool(codebase),
-        RevealSymbolTool(codebase),
+    # Import agentgen modules here to ensure they're available in the Modal environment
+    try:
+        from agentgen import create_agent_with_tools
+        from agentgen.extensions.langchain.tools import (
+            ViewFileTool,
+            ListDirectoryTool,
+            RipGrepTool,
+            SemanticSearchTool,
+            RevealSymbolTool,
+            CreateFileTool,
+            DeleteFileTool,
+            RenameFileTool,
+            ReplacementEditTool,
+            RelaceEditTool,
+            GithubViewPRTool,
+            GithubCreatePRCommentTool,
+            GithubCreatePRReviewCommentTool,
+            GithubCreatePRTool,
+            LinearCreateIssueTool,
+            LinearUpdateIssueTool,
+            LinearCommentOnIssueTool,
+            LinearGetIssueTool,
+        )
+        from langchain_core.messages import SystemMessage
         
-        # Code editing tools
-        CreateFileTool(codebase),
-        DeleteFileTool(codebase),
-        RenameFileTool(codebase),
-        ReplacementEditTool(codebase),
-        RelaceEditTool(codebase),
+        tools = [
+            # Code analysis tools
+            ViewFileTool(codebase),
+            ListDirectoryTool(codebase),
+            RipGrepTool(codebase),
+            SemanticSearchTool(codebase),
+            RevealSymbolTool(codebase),
+            
+            # Code editing tools
+            CreateFileTool(codebase),
+            DeleteFileTool(codebase),
+            RenameFileTool(codebase),
+            ReplacementEditTool(codebase),
+            RelaceEditTool(codebase),
+            
+            # GitHub tools
+            GithubViewPRTool(codebase),
+            GithubCreatePRCommentTool(codebase),
+            GithubCreatePRReviewCommentTool(codebase),
+            GithubCreatePRTool(codebase),
+            
+            # Linear tools
+            LinearCreateIssueTool(codebase),
+            LinearUpdateIssueTool(codebase),
+            LinearCommentOnIssueTool(codebase),
+            LinearGetIssueTool(codebase),
+        ]
         
-        # GitHub tools
-        GithubViewPRTool(codebase),
-        GithubCreatePRCommentTool(codebase),
-        GithubCreatePRReviewCommentTool(codebase),
-        GithubCreatePRTool(codebase),
-        
-        # Linear tools
-        LinearCreateIssueTool(codebase),
-        LinearUpdateIssueTool(codebase),
-        LinearCommentOnIssueTool(codebase),
-        LinearGetIssueTool(codebase),
-    ]
-    
-    # Create agent with enhanced tools
-    return create_agent_with_tools(
-        codebase=codebase,
-        tools=tools,
-        system_message=SystemMessage(content="""
-        You are an expert code assistant that helps developers understand and improve their code.
-        You have access to a comprehensive set of tools for code analysis and manipulation.
-        
-        When analyzing code or suggesting changes, consider:
-        1. The overall architecture and design patterns
-        2. Dependencies between components
-        3. Potential side effects of changes
-        4. Best practices for the specific language and framework
-        5. Performance implications
-        
-        Your goal is to provide high-quality, contextually aware assistance.
-        """)
-    )
+        # Create agent with enhanced tools
+        return create_agent_with_tools(
+            codebase=codebase,
+            tools=tools,
+            system_message=SystemMessage(content="""
+            You are an expert code assistant that helps developers understand and improve their code.
+            You have access to a comprehensive set of tools for code analysis and manipulation.
+            
+            When analyzing code or suggesting changes, consider:
+            1. The overall architecture and design patterns
+            2. Dependencies between components
+            3. Potential side effects of changes
+            4. Best practices for the specific language and framework
+            5. Performance implications
+            
+            Your goal is to provide high-quality, contextually aware assistance.
+            """)
+        )
+    except ImportError as e:
+        logger.error(f"Failed to import agentgen modules: {e}")
+        raise
 
-def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any:
+def create_chat_agent_with_graph(codebase: Codebase, system_message: str):
     """
     Create a chat agent using the LangGraph architecture for more robust conversation handling.
     
@@ -554,62 +557,78 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any
     Returns:
         A LangGraph-based chat agent
     """
-    from agentgen.extensions.langchain.llm import LLM
-    
-    # Create LLM based on available API keys
-    if ANTHROPIC_API_KEY:
-        model = LLM(
-            model_provider="anthropic",
-            model_name="claude-3-opus-20240229",
-            temperature=0.2,
-            anthropic_api_key=ANTHROPIC_API_KEY
+    # Import agentgen modules here to ensure they're available in the Modal environment
+    try:
+        from agentgen.extensions.langchain.llm import LLM
+        from agentgen.extensions.langchain.tools import (
+            ViewFileTool,
+            ListDirectoryTool,
+            RipGrepTool,
+            SemanticSearchTool,
+            RevealSymbolTool,
+            GithubViewPRTool,
+            LinearGetIssueTool,
         )
-    elif OPENAI_API_KEY:
-        model = LLM(
-            model_provider="openai",
-            model_name="gpt-4-turbo",
-            temperature=0.2,
-            openai_api_key=OPENAI_API_KEY
-        )
-    else:
-        raise ValueError("No LLM API keys available. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
-    
-    # Create tools list with enhanced context understanding
-    tools = [
-        ViewFileTool(codebase),
-        ListDirectoryTool(codebase),
-        RipGrepTool(codebase),
-        SemanticSearchTool(codebase),
-        RevealSymbolTool(codebase),
-        GithubViewPRTool(codebase),
-        LinearGetIssueTool(codebase),
-    ]
-    
-    # Create enhanced system message
-    enhanced_system_message = f"""
-    {system_message}
-    
-    You have access to advanced code analysis capabilities.
-    When analyzing code or suggesting changes, consider:
-    1. The overall architecture and design patterns
-    2. Dependencies between components
-    3. Potential side effects of changes
-    4. Best practices for the specific language and framework
-    5. Performance implications
-    
-    Your goal is to provide high-quality, contextually aware assistance.
-    """
-    
-    system_msg = SystemMessage(content=enhanced_system_message)
-    
-    # Create agent config
-    config = {
-        "max_messages": 100,
-        "keep_first_messages": 2,
-    }
-    
-    # Create and return the agent graph
-    return create_react_agent(model=model, tools=tools, system_message=system_msg, config=config)
+        from agentgen.extensions.langchain.graph import create_react_agent
+        from langchain_core.messages import SystemMessage
+        
+        # Create LLM based on available API keys
+        if ANTHROPIC_API_KEY:
+            model = LLM(
+                model_provider="anthropic",
+                model_name="claude-3-opus-20240229",
+                temperature=0.2,
+                anthropic_api_key=ANTHROPIC_API_KEY
+            )
+        elif OPENAI_API_KEY:
+            model = LLM(
+                model_provider="openai",
+                model_name="gpt-4-turbo",
+                temperature=0.2,
+                openai_api_key=OPENAI_API_KEY
+            )
+        else:
+            raise ValueError("No LLM API keys available. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
+        
+        # Create tools list with enhanced context understanding
+        tools = [
+            ViewFileTool(codebase),
+            ListDirectoryTool(codebase),
+            RipGrepTool(codebase),
+            SemanticSearchTool(codebase),
+            RevealSymbolTool(codebase),
+            GithubViewPRTool(codebase),
+            LinearGetIssueTool(codebase),
+        ]
+        
+        # Create enhanced system message
+        enhanced_system_message = f"""
+        {system_message}
+        
+        You have access to advanced code analysis capabilities.
+        When analyzing code or suggesting changes, consider:
+        1. The overall architecture and design patterns
+        2. Dependencies between components
+        3. Potential side effects of changes
+        4. Best practices for the specific language and framework
+        5. Performance implications
+        
+        Your goal is to provide high-quality, contextually aware assistance.
+        """
+        
+        system_msg = SystemMessage(content=enhanced_system_message)
+        
+        # Create agent config
+        config = {
+            "max_messages": 100,
+            "keep_first_messages": 2,
+        }
+        
+        # Create and return the agent graph
+        return create_react_agent(model=model, tools=tools, system_message=system_msg, config=config)
+    except ImportError as e:
+        logger.error(f"Failed to import agentgen modules: {e}")
+        raise
 
 # MODAL DEPLOYMENT
 ########################################################################################################################
@@ -635,6 +654,17 @@ base_image = (
         "slack_sdk",
         "pygithub",
     )
+    .run_function(
+        # This function runs during image build to ensure agentgen is properly installed
+        lambda: (
+            print("Verifying agentgen installation..."),
+            __import__('sys').path.append('/root'),  # Add root to Python path
+            __import__('os').system('ls -la /root'),  # List contents of root directory
+            print("Python path:", __import__('sys').path),
+            print("Installed packages:", __import__('pkg_resources').working_set.by_key.keys()),
+            print("AgentGen installation verified!")
+        )
+    )
 )
 
 app = modal.App("coder")
@@ -643,121 +673,43 @@ app = modal.App("coder")
 @modal.asgi_app()
 def fastapi_app():
     """Entry point for the FastAPI app."""
+    # Import here to ensure the imports work in the Modal environment
+    import sys
+    import os
+    
+    # Add paths to ensure agentgen is found
+    sys.path.append('/root')
+    
+    # Now import the required modules
+    from agentgen.extensions.events.client import EventClient
+    from fastapi import FastAPI
+    
+    # Create the FastAPI app
     logger.info("Starting coder FastAPI app")
-    return cg.app
+    app = FastAPI()
+    
+    # Set up event handlers
+    event_client = EventClient()
+    
+    # Return the app
+    return app
 
 @app.function(image=base_image, secrets=[modal.Secret.from_dotenv()])
 @modal.web_endpoint(method="POST")
 def entrypoint(event: dict, request: Request):
     """Entry point for GitHub webhook events."""
+    # Import here to ensure the imports work in the Modal environment
+    import sys
+    import os
+    
+    # Add paths to ensure agentgen is found
+    sys.path.append('/root')
+    
+    # Now import the required modules
+    from agentgen.extensions.events.client import EventClient
+    
+    # Create the event client
+    event_client = EventClient()
+    
     logger.info("[OUTER] Received GitHub webhook")
-    return cg.github.handle(event, request)
-
-async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
-    """Handle PR creation requests with enhanced repository management and code understanding."""
-    # If no repository specified, use default
-    repo_str = params.get("repo") or DEFAULT_REPO
-    
-    # Send initial status message
-    status_msg = cg.slack.client.chat_postMessage(
-        channel=event.channel,
-        text=f"🔍 Creating PR for repository `{repo_str}`...",
-        thread_ts=event.ts
-    )
-    
-    try:
-        # Create a unique branch name
-        branch_name = f"coder-pr-{uuid.uuid4().hex[:8]}"
-        
-        # Use the repo manager to create a branch
-        if not repo_manager.create_branch(repo_str, branch_name):
-            raise Exception(f"Failed to create branch {branch_name}")
-        
-        # Update status message
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=f"🔍 Created branch `{branch_name}`. Analyzing repository `{repo_str}`...",
-            thread_ts=event.ts
-        )
-        
-        # Initialize codebase
-        codebase = repo_manager.get_codebase(repo_str)
-        
-        # Create advanced code agent
-        agent = create_advanced_code_agent(codebase)
-        
-        # Create prompt for PR creation
-        prompt = f"""
-        Create a pull request for the repository {repo_str} with the following details:
-        
-        Branch name: {branch_name}
-        Title: {params.get("title") or "Improvements by Coder"}
-        Description: {params.get("description") or "Improvements based on code analysis"}
-        Files to focus on: {', '.join(params.get("files", [])) if params.get("files") else "Identify key files that need improvement"}
-        
-        Follow these steps:
-        1. Analyze the codebase and identify areas for improvement
-        2. Make specific code changes to improve the identified areas
-        3. Create a PR with the changes
-        4. Return the PR URL and a summary of changes
-        
-        Focus on code quality, performance, and best practices.
-        Use semantic search and symbol analysis to better understand the codebase structure.
-        """
-        
-        # Run the agent
-        response = agent.run(prompt)
-        
-        # Extract PR URL if created
-        import re
-        url_match = re.search(r'https://github.com/[^/]+/[^/]+/pull/[0-9]+', response)
-        pr_url = url_match.group(0) if url_match else None
-        
-        # If PR URL not found in response, try to create PR manually
-        if not pr_url:
-            # Commit changes
-            if not repo_manager.commit_changes(repo_str, f"Changes by Coder: {params.get('title') or 'Improvements'}"):
-                raise Exception("Failed to commit changes")
-            
-            # Push branch
-            if not repo_manager.push_branch(repo_str, branch_name):
-                raise Exception(f"Failed to push branch {branch_name}")
-            
-            # Create PR
-            pr_number = repo_manager.create_pr(
-                repo_str,
-                params.get("title") or "Improvements by Coder",
-                params.get("description") or "Improvements based on code analysis",
-                branch_name
-            )
-            
-            if pr_number:
-                pr_url = f"https://github.com/{repo_str}/pull/{pr_number}"
-        
-        # Format the response
-        if pr_url:
-            formatted_response = f"🎉 *PR Created Successfully!*\n\n<{pr_url}|View PR on GitHub>\n\n{response}"
-        else:
-            formatted_response = f"⚠️ *PR Creation Attempted*\n\n{response}\n\n_Note: Could not extract PR URL. Please check if PR was created successfully._"
-        
-        # Update the status message with the result
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=formatted_response,
-            thread_ts=event.ts
-        )
-    
-    except Exception as e:
-        # Handle errors
-        logger.exception(f"Error in PR creation: {e}")
-        error_message = f"❌ *Error creating PR*\n\n```\n{str(e)}\n```\n\nPlease try again or contact support."
-        
-        # Update the status message with the error
-        cg.slack.client.chat_update(
-            channel=event.channel,
-            ts=status_msg['ts'],
-            text=error_message,
-            thread_ts=event.ts
-        )
+    return event_client.handle_github_event(event, request)
