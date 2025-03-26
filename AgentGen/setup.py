@@ -13,4 +13,5 @@ setup(
             "agentgen=cli.commands.main:main",
         ],
     },
+    zip_safe=False,
 )
