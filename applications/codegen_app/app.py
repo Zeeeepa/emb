@@ -626,6 +626,8 @@ base_image = (
     .pip_install(
         # =====[ Codegen ]=====
         f"git+{REPO_URL}@{COMMIT_ID}",
+        # =====[ AgentGen ]=====
+        "git+https://github.com/Zeeeepa/AgentGen.git",
         # =====[ Rest ]=====
         "openai>=1.1.0",
         "anthropic>=0.5.0",
