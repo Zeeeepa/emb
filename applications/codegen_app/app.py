@@ -9,7 +9,7 @@ from typing import Optional, Dict, Any, List, Tuple, Union
 import modal
 from codegen import CodegenApp, Codebase
 from codegen.configs.models.secrets import SecretsConfig
-from codegen.git.repo_operator import RepoOperator
+from codegen.git.repo_operator.repo_operator import RepoOperator
 from agentgen import CodeAgent, ChatAgent, create_codebase_agent, create_chat_agent, create_codebase_inspector_agent, create_agent_with_tools
 from agentgen.extensions.github.types.events.pull_request import (
     PullRequestLabeledEvent,
