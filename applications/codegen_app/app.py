@@ -23,6 +23,7 @@ try:
         PullRequestReviewRequestedEvent,
         PullRequestUnlabeledEvent
     )
+
     from agentgen.extensions.slack.types import SlackEvent
     from agentgen.extensions.tools.github.create_pr_comment import create_pr_comment
     from agentgen.extensions.langchain.tools import (
@@ -695,7 +696,7 @@ def fastapi_app():
     return app
 
 @app.function(image=base_image, secrets=[modal.Secret.from_dotenv()])
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def entrypoint(event: dict, request: Request):
     """Entry point for GitHub webhook events."""
     # Import here to ensure the imports work in the Modal environment
