@@ -1,13 +1,15 @@
 # Codegen App
 
-A versatile application that integrates with Slack, GitHub, and Linear to provide AI-powered code assistance and PR reviews.
+A versatile application that integrates with Slack, GitHub, and Linear to provide AI-powered code assistance, repository analysis, PR suggestions, and issue tracking.
 
 ## Features
 
 - **Slack Integration**: Respond to mentions with AI-powered code assistance
+- **Repository Analysis**: Analyze repositories and provide comprehensive reports
+- **PR Suggestions**: Generate PR suggestions with specific code improvements
 - **GitHub PR Reviews**: Automatically review PRs when labeled with a trigger label
 - **PR Event Handling**: Welcome new PRs, respond to review requests, and clean up comments
-- **Linear Issue Tracking**: Track and notify about Linear issues
+- **Linear Issue Tracking**: Create, update, and track Linear issues
 - **Slack Notifications**: Get notified about important events across platforms
 
 ## Environment Variables
@@ -38,6 +40,9 @@ OPENAI_API_KEY="your_openai_api_key"
 SLACK_BOT_TOKEN="your_slack_bot_token"
 SLACK_SIGNING_SECRET="your_slack_signing_secret"
 SLACK_NOTIFICATION_CHANNEL="your_slack_channel_id"
+
+# Linear configuration
+LINEAR_API_KEY="your_linear_api_key"
 ```
 
 ## Run Locally
@@ -79,7 +84,48 @@ Then update your webhook URLs to use the Modal endpoints.
    - Secret: Create a secure random string
    - Events: Select "Pull requests" at minimum
 
+## Linear Webhook Setup
+
+1. Go to your Linear workspace settings → API → Webhooks
+2. Add a new webhook with:
+   - URL: Your Modal or ngrok URL + `/linear/events`
+   - Resource types: Select "Issues" and "Comments" at minimum
+
 ## Usage
+
+### Slack Commands
+
+Mention the bot in Slack with different commands:
+
+#### Repository Analysis
+
+```
+@codegen-app analyze repo Zeeeepa/emb
+```
+
+#### PR Suggestions
+
+```
+@codegen-app suggest PR for Zeeeepa/emb
+title: Improve error handling
+description: Add better error handling to the core modules
+files: AgentGen/agents/code_agent.py, AgentGen/extensions/events/github.py
+```
+
+#### Linear Issue Creation
+
+```
+@codegen-app create issue
+title: Implement better error handling
+description: We need to improve error handling in the GitHub event handlers
+priority: high
+```
+
+#### General Code Assistance
+
+```
+@codegen-app Help me understand how to use the ripgrep tool in codegen
+```
 
 ### PR Reviews
 
@@ -87,14 +133,21 @@ Then update your webhook URLs to use the Modal endpoints.
 2. Add the label specified in `TRIGGER_LABEL` (default: "analyzer")
 3. The bot will automatically review the PR and add comments
 
-### Slack Interaction
-
-Mention the bot in Slack to get code assistance:
-
-```
-@codegen-app Help me understand how to use the ripgrep tool in codegen
-```
-
 ## Customization
 
-You can customize the PR review prompt in the `handle_pr_labeled` function to adjust the review style and focus.
+You can customize the prompts for different features by modifying the corresponding handler functions in `app.py`:
+
+- PR reviews: `handle_pr_labeled`
+- Repository analysis: `handle_repo_analysis`
+- PR suggestions: `handle_pr_suggestion`
+- Linear issue creation: `handle_linear_issue_creation`
+
+## Architecture
+
+The application uses the following components:
+
+- **CodegenApp**: Core application that handles events from different platforms
+- **CodeAgent**: AI agent that performs code analysis and generation
+- **GitHub Tools**: Tools for interacting with GitHub repositories and PRs
+- **Linear Tools**: Tools for creating and managing Linear issues
+- **Background Tasks**: Asynchronous task processing for long-running operations
