@@ -25,6 +25,14 @@ from agentgen.extensions.langchain.tools import (
     LinearUpdateIssueTool,
     LinearCommentOnIssueTool,
     LinearGetIssueTool,
+    ViewFileTool,
+    ListDirectoryTool,
+    RipGrepTool,
+    CreateFileTool,
+    DeleteFileTool,
+    RenameFileTool,
+    ReplacementEditTool,
+    RelaceEditTool,
 )
 from fastapi import Request, BackgroundTasks
 from github import Github
@@ -235,89 +243,302 @@ async def handle_repo_analysis(event: SlackEvent):
     )
 
 async def handle_pr_suggestion(event: SlackEvent):
-    """Handle PR suggestion requests."""
+    """Handle PR suggestion requests and create actual PRs when requested."""
     # Parse the PR suggestion request
     pr_request = parse_pr_suggestion_request(event.text)
     
     # If no repository specified, use default
     repo_str = pr_request["repo"] or DEFAULT_REPO
     
-    # Initialize codebase
-    codebase = get_codebase_for_repo(repo_str)
-    
-    # Create PR suggestion agent
-    agent = get_repo_analysis_agent(codebase)
-    
-    # Create prompt for PR suggestion
-    prompt = f"""
-    Create a pull request suggestion for the repository {repo_str} with the following details:
-    
-    Title: {pr_request["title"] or "Suggested improvements"}
-    Description: {pr_request["description"] or "Improvements based on code analysis"}
-    Files to focus on: {', '.join(pr_request["files"]) if pr_request["files"] else "Identify key files that need improvement"}
-    
-    Analyze the codebase, identify areas for improvement, and create a PR with specific code changes.
-    Focus on code quality, performance, and best practices.
-    """
-    
-    # Run the agent
-    response = agent.run(prompt)
-    
-    # Send response back to Slack
-    cg.slack.client.chat_postMessage(
-        channel=event.channel, 
-        text=f"*PR Suggestion for {repo_str}*\n\n{response}", 
+    # Send initial status message
+    status_msg = cg.slack.client.chat_postMessage(
+        channel=event.channel,
+        text=f"🔍 Analyzing repository `{repo_str}` and preparing PR...",
         thread_ts=event.ts
     )
+    
+    try:
+        # Initialize codebase
+        codebase = get_codebase_for_repo(repo_str)
+        
+        # Determine if this is a suggestion or actual PR creation
+        create_pr = "create pr" in event.text.lower()
+        
+        if create_pr:
+            # Create a unique branch name
+            import uuid
+            branch_name = f"codegen-pr-{uuid.uuid4().hex[:8]}"
+            
+            # Create PR creation agent with GitHub tools
+            agent = CodeAgent(
+                codebase=codebase,
+                tools=[
+                    GithubViewPRTool(codebase),
+                    GithubCreatePRCommentTool(codebase),
+                    GithubCreatePRTool(codebase),
+                    ViewFileTool(codebase),
+                    ListDirectoryTool(codebase),
+                    RipGrepTool(codebase),
+                    CreateFileTool(codebase),
+                    DeleteFileTool(codebase),
+                    RenameFileTool(codebase),
+                    ReplacementEditTool(codebase),
+                    RelaceEditTool(codebase),
+                ]
+            )
+            
+            # Create prompt for PR creation
+            prompt = f"""
+            Create a pull request for the repository {repo_str} with the following details:
+            
+            Branch name: {branch_name}
+            Title: {pr_request["title"] or "Improvements by CodegenApp"}
+            Description: {pr_request["description"] or "Improvements based on code analysis"}
+            Files to focus on: {', '.join(pr_request["files"]) if pr_request["files"] else "Identify key files that need improvement"}
+            
+            Follow these steps:
+            1. Analyze the codebase and identify areas for improvement
+            2. Create a new branch named '{branch_name}'
+            3. Make specific code changes to improve the identified areas
+            4. Create a PR with the changes
+            5. Return the PR URL and a summary of changes
+            
+            Focus on code quality, performance, and best practices.
+            """
+        else:
+            # Create PR suggestion agent
+            agent = get_repo_analysis_agent(codebase)
+            
+            # Create prompt for PR suggestion
+            prompt = f"""
+            Create a pull request suggestion for the repository {repo_str} with the following details:
+            
+            Title: {pr_request["title"] or "Suggested improvements"}
+            Description: {pr_request["description"] or "Improvements based on code analysis"}
+            Files to focus on: {', '.join(pr_request["files"]) if pr_request["files"] else "Identify key files that need improvement"}
+            
+            Analyze the codebase, identify areas for improvement, and suggest specific code changes.
+            Focus on code quality, performance, and best practices.
+            Do not actually create the PR, just provide suggestions.
+            """
+        
+        # Run the agent
+        response = agent.run(prompt)
+        
+        # Extract PR URL if created
+        pr_url = None
+        if create_pr:
+            import re
+            url_match = re.search(r'https://github.com/[^/]+/[^/]+/pull/[0-9]+', response)
+            if url_match:
+                pr_url = url_match.group(0)
+        
+        # Format the response
+        if create_pr and pr_url:
+            formatted_response = f"🎉 *PR Created Successfully!*
+
+<{pr_url}|View PR on GitHub>
+
+{response}"
+        elif create_pr:
+            formatted_response = f"⚠️ *PR Creation Attempted*
+
+{response}
+
+_Note: Could not extract PR URL. Please check if PR was created successfully._"
+        else:
+            formatted_response = f"📋 *PR Suggestion for {repo_str}*
+
+{response}
+
+_To create this PR, use `create PR` instead of `suggest PR`._"
+        
+        # Update the status message with the result
+        cg.slack.client.chat_update(
+            channel=event.channel,
+            ts=status_msg['ts'],
+            text=formatted_response,
+            thread_ts=event.ts
+        )
+    
+    except Exception as e:
+        # Handle errors
+        logger.exception(f"Error in PR suggestion/creation: {e}")
+        error_message = f"❌ *Error creating PR suggestion*
+
+```
+{str(e)}
+```
+
+Please try again or contact support."
+        
+        # Update the status message with the error
+        cg.slack.client.chat_update(
+            channel=event.channel,
+            ts=status_msg['ts'],
+            text=error_message,
+            thread_ts=event.ts
+        )
 
 async def handle_linear_issue_creation(event: SlackEvent):
-    """Handle Linear issue creation requests."""
+    """Handle Linear issue creation requests with status updates."""
     # Extract repository from message (if applicable)
     repo_str = extract_repo_from_text(event.text) or DEFAULT_REPO
     
-    # Initialize codebase
-    codebase = get_codebase_for_repo(repo_str)
-    
-    # Create Linear agent
-    agent = get_linear_agent(codebase)
-    
-    # Create prompt for Linear issue creation
-    prompt = f"""
-    Create a Linear issue based on the following Slack message:
-    
-    {event.text}
-    
-    Extract the relevant details such as title, description, and priority.
-    If the repository {repo_str} is relevant, include it in the issue description.
-    """
-    
-    # Run the agent
-    response = agent.run(prompt)
-    
-    # Send response back to Slack
-    cg.slack.client.chat_postMessage(
-        channel=event.channel, 
-        text=f"*Linear Issue Creation*\n\n{response}", 
+    # Send initial status message
+    status_msg = cg.slack.client.chat_postMessage(
+        channel=event.channel,
+        text=f"🔍 Analyzing request and creating Linear issue...",
         thread_ts=event.ts
     )
+    
+    try:
+        # Initialize codebase
+        codebase = get_codebase_for_repo(repo_str)
+        
+        # Create Linear agent
+        agent = get_linear_agent(codebase)
+        
+        # Create prompt for Linear issue creation
+        prompt = f"""
+        Create a Linear issue based on the following Slack message:
+        
+        {event.text}
+        
+        Extract the relevant details such as title, description, and priority.
+        If the repository {repo_str} is relevant, include it in the issue description.
+        
+        Return the issue ID, title, and URL in your response.
+        """
+        
+        # Run the agent
+        response = agent.run(prompt)
+        
+        # Extract issue ID and URL if available
+        import re
+        issue_id_match = re.search(r'Issue ID: ([A-Z]+-[0-9]+)', response)
+        issue_url_match = re.search(r'https://linear.app/[^ ]+', response)
+        
+        issue_id = issue_id_match.group(1) if issue_id_match else None
+        issue_url = issue_url_match.group(0) if issue_url_match else None
+        
+        # Format the response
+        if issue_id and issue_url:
+            formatted_response = f"🎯 *Linear Issue Created Successfully!*
+
+<{issue_url}|View Issue {issue_id}>
+
+{response}"
+        else:
+            formatted_response = f"📋 *Linear Issue Creation*
+
+{response}"
+        
+        # Update the status message with the result
+        cg.slack.client.chat_update(
+            channel=event.channel,
+            ts=status_msg['ts'],
+            text=formatted_response,
+            thread_ts=event.ts
+        )
+        
+        # Send a notification to the configured channel if different from the request channel
+        if SLACK_NOTIFICATION_CHANNEL and SLACK_NOTIFICATION_CHANNEL != event.channel:
+            cg.slack.client.chat_postMessage(
+                channel=SLACK_NOTIFICATION_CHANNEL,
+                text=f"New Linear issue created from Slack request in <#{event.channel}>"
+            )
+    
+    except Exception as e:
+        # Handle errors
+        logger.exception(f"Error in Linear issue creation: {e}")
+        error_message = f"❌ *Error creating Linear issue*
+
+```
+{str(e)}
+```
+
+Please try again or contact support."
+        
+        # Update the status message with the error
+        cg.slack.client.chat_update(
+            channel=event.channel,
+            ts=status_msg['ts'],
+            text=error_message,
+            thread_ts=event.ts
+        )
 
 async def handle_default_mention(event: SlackEvent):
-    """Handle default mention requests with the code agent."""
-    # Initialize codebase
-    codebase = cg.get_codebase()
-    
-    # Create code agent
-    agent = CodeAgent(codebase=codebase)
-    
-    # Run the agent
-    response = agent.run(event.text)
-    
-    # Send response back to Slack
-    cg.slack.client.chat_postMessage(
-        channel=event.channel, 
-        text=response, 
+    """Handle default mention requests with the code agent and enhanced response formatting."""
+    # Send initial status message
+    status_msg = cg.slack.client.chat_postMessage(
+        channel=event.channel,
+        text="🤔 Thinking about your request...",
         thread_ts=event.ts
     )
+    
+    try:
+        # Initialize codebase
+        codebase = cg.get_codebase()
+        
+        # Create code agent with comprehensive tools
+        agent = CodeAgent(
+            codebase=codebase,
+            tools=[
+                ViewFileTool(codebase),
+                ListDirectoryTool(codebase),
+                RipGrepTool(codebase),
+                GithubViewPRTool(codebase),
+                GithubCreatePRTool(codebase),
+                LinearGetIssueTool(codebase),
+                LinearCreateIssueTool(codebase),
+            ]
+        )
+        
+        # Create a more detailed prompt
+        prompt = f"""
+        You are CodegenApp, an AI assistant that helps with code-related tasks.
+        
+        User request: {event.text}
+        
+        Analyze the request and provide a helpful response. If the request is about:
+        - Code analysis: Provide detailed insights
+        - Repository information: Summarize key components
+        - PR or issue creation: Suggest next steps
+        - General questions: Provide clear, concise answers
+        
+        Format your response with Markdown for readability.
+        """
+        
+        # Run the agent
+        response = agent.run(prompt)
+        
+        # Update the status message with the result
+        cg.slack.client.chat_update(
+            channel=event.channel,
+            ts=status_msg['ts'],
+            text=response,
+            thread_ts=event.ts
+        )
+    
+    except Exception as e:
+        # Handle errors
+        logger.exception(f"Error in default mention handler: {e}")
+        error_message = f"❌ *Error processing your request*
+
+```
+{str(e)}
+```
+
+Please try again with a more specific request."
+        
+        # Update the status message with the error
+        cg.slack.client.chat_update(
+            channel=event.channel,
+            ts=status_msg['ts'],
+            text=error_message,
+            thread_ts=event.ts
+        )
 
 @cg.github.event("pull_request:labeled")
 def handle_pr_labeled(event: PullRequestLabeledEvent):

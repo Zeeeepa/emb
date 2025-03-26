@@ -6,11 +6,14 @@ A versatile application that integrates with Slack, GitHub, and Linear to provid
 
 - **Slack Integration**: Respond to mentions with AI-powered code assistance
 - **Repository Analysis**: Analyze repositories and provide comprehensive reports
-- **PR Suggestions**: Generate PR suggestions with specific code improvements
+- **PR Suggestions & Creation**: Generate PR suggestions or create actual PRs with code improvements
 - **GitHub PR Reviews**: Automatically review PRs when labeled with a trigger label
 - **PR Event Handling**: Welcome new PRs, respond to review requests, and clean up comments
-- **Linear Issue Tracking**: Create, update, and track Linear issues
+- **Linear Issue Tracking**: Create, update, and track Linear issues with rich formatting
 - **Slack Notifications**: Get notified about important events across platforms
+- **Error Handling**: Comprehensive error handling with clear feedback
+- **Background Processing**: Long-running tasks are processed in the background
+- **Status Updates**: Real-time status updates for long-running operations
 
 ## Environment Variables
 
@@ -103,14 +106,23 @@ Mention the bot in Slack with different commands:
 @codegen-app analyze repo Zeeeepa/emb
 ```
 
-#### PR Suggestions
+#### PR Suggestions and Creation
 
 ```
+# For suggestions only
 @codegen-app suggest PR for Zeeeepa/emb
 title: Improve error handling
 description: Add better error handling to the core modules
 files: AgentGen/agents/code_agent.py, AgentGen/extensions/events/github.py
+
+# For actual PR creation
+@codegen-app create PR for Zeeeepa/emb
+title: Improve error handling
+description: Add better error handling to the core modules
+files: AgentGen/agents/code_agent.py, AgentGen/extensions/events/github.py
 ```
+
+The bot will analyze the repository, make the necessary changes, and create a PR with the specified details when using `create PR`. When using `suggest PR`, it will only provide suggestions without creating an actual PR.
 
 #### Linear Issue Creation
 
