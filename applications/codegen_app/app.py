@@ -638,6 +638,33 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str):
 REPO_URL = "https://github.com/codegen-sh/codegen-sdk.git"
 COMMIT_ID = "6a0e101718c247c01399c60b7abf301278a41786"
 
+# Function to verify agentgen installation during image build
+def verify_agentgen_installation():
+    print("Verifying agentgen installation...")
+    import sys
+    import os
+    import pkg_resources
+    
+    # Add root to Python path
+    sys.path.append('/root')
+    
+    # List contents of root directory
+    os.system('ls -la /root')
+    
+    # Print debug information
+    print("Python path:", sys.path)
+    print("Installed packages:", list(pkg_resources.working_set.by_key.keys()))
+    
+    # Try importing agentgen
+    try:
+        import agentgen
+        print(f"AgentGen version: {agentgen.__version__}")
+        print("AgentGen installation verified!")
+        return True
+    except ImportError as e:
+        print(f"Failed to import agentgen: {e}")
+        return False
+
 # Create the base image with dependencies
 base_image = (
     modal.Image.debian_slim(python_version="3.13")
@@ -654,17 +681,7 @@ base_image = (
         "slack_sdk",
         "pygithub",
     )
-    .run_function(
-        # This function runs during image build to ensure agentgen is properly installed
-        lambda: (
-            print("Verifying agentgen installation..."),
-            __import__('sys').path.append('/root'),  # Add root to Python path
-            __import__('os').system('ls -la /root'),  # List contents of root directory
-            print("Python path:", __import__('sys').path),
-            print("Installed packages:", __import__('pkg_resources').working_set.by_key.keys()),
-            print("AgentGen installation verified!")
-        )
-    )
+    .run_function(verify_agentgen_installation)
 )
 
 app = modal.App("coder")

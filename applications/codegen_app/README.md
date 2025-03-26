@@ -117,30 +117,52 @@ chmod +x deploy_modal.sh
 
 The deployment script sets up the proper Python path to include both `codegen` and `agentgen` packages, which is necessary for the Modal deployment to work correctly.
 
-If you encounter import errors during deployment, ensure that both `codegen` and `agentgen` packages are properly installed in the Modal environment. The app.py file is configured to install these packages during deployment:
+### Troubleshooting Modal Deployment
 
-```python
-# In app.py
-base_image = (
-    modal.Image.debian_slim(python_version="3.13")
-    .apt_install("git")
-    .pip_install(
-        # =====[ Codegen ]=====
-        f"git+{REPO_URL}@{COMMIT_ID}",
-        # =====[ AgentGen ]=====
-        "git+https://github.com/Zeeeepa/emb.git#subdirectory=AgentGen",
-        # ... other dependencies
-    )
-    .run_function(
-        # This function runs during image build to ensure agentgen is properly installed
-        lambda: (
-            print("Verifying agentgen installation..."),
-            __import__('sys').path.append('/root'),  # Add root to Python path
-            print("Python path:", __import__('sys').path),
-            print("AgentGen installation verified!")
-        )
-    )
-)
-```
+If you encounter import errors during deployment, try the following steps:
+
+1. **Ensure packages are installed locally**:
+   ```bash
+   # Install both packages in development mode
+   cd ~/emb/AgentGen && pip install -e . && cd -
+   cd ~/emb/codegen && pip install -e . && cd -
+   ```
+
+2. **Check Python path**:
+   ```bash
+   # The deploy_modal.sh script sets this automatically
+   export PYTHONPATH=$PYTHONPATH:~/emb/AgentGen:~/emb/codegen
+   ```
+
+3. **Verify imports work locally**:
+   ```bash
+   python -c "import agentgen; import codegen; print('Imports successful!')"
+   ```
+
+4. **Check Modal image configuration**:
+   The app.py file is configured to install these packages during deployment:
+
+   ```python
+   # In app.py
+   base_image = (
+       modal.Image.debian_slim(python_version="3.13")
+       .apt_install("git")
+       .pip_install(
+           # =====[ Codegen ]=====
+           f"git+{REPO_URL}@{COMMIT_ID}",
+           # =====[ AgentGen ]=====
+           "git+https://github.com/Zeeeepa/emb.git#subdirectory=AgentGen",
+           # ... other dependencies
+       )
+       .run_function(verify_agentgen_installation)
+   )
+   ```
+
+   The `verify_agentgen_installation` function checks if the agentgen package is properly installed in the Modal environment.
+
+5. **Common issues**:
+   - Case sensitivity: Make sure the directory name matches the import name (AgentGen vs agentgen)
+   - Path issues: Ensure the Python path includes the correct directories
+   - Installation issues: Make sure the packages are installed correctly
 
 After deployment, update your webhook URLs to use the Modal endpoints.
