@@ -5,6 +5,7 @@ A versatile application that integrates with Slack, GitHub, and Linear to provid
 ## Features
 
 - **Slack Integration**: Respond to mentions with AI-powered code assistance
+- **Advanced Intent Recognition**: Automatically detect user intent from natural language requests
 - **Repository Analysis**: Analyze repositories and provide comprehensive reports
 - **PR Suggestions & Creation**: Generate PR suggestions or create actual PRs with code improvements
 - **GitHub PR Reviews**: Automatically review PRs when labeled with a trigger label
@@ -14,6 +15,8 @@ A versatile application that integrates with Slack, GitHub, and Linear to provid
 - **Error Handling**: Comprehensive error handling with clear feedback
 - **Background Processing**: Long-running tasks are processed in the background
 - **Status Updates**: Real-time status updates for long-running operations
+- **Efficient Repository Management**: Smart caching of repositories for faster analysis
+- **Semantic Code Analysis**: Utilizes semantic search and symbol analysis for deeper insights
 
 ## Environment Variables
 
@@ -29,6 +32,9 @@ MODAL_API_KEY="your_modal_api_key"
 
 # Default repository
 DEFAULT_REPO="your_org/your_repo"
+
+# Repository cache directory (optional)
+REPO_CACHE_DIR="/tmp/codegen_repos"
 
 # Server configuration
 PORT=8000
@@ -98,12 +104,14 @@ Then update your webhook URLs to use the Modal endpoints.
 
 ### Slack Commands
 
-Mention the bot in Slack with different commands:
+Mention the bot in Slack with different commands. The bot uses advanced intent recognition to understand your requests in natural language.
 
 #### Repository Analysis
 
 ```
 @codegen-app analyze repo Zeeeepa/emb
+@codegen-app analyze the codebase at Zeeeepa/emb
+@codegen-app can you analyze the repository structure of Zeeeepa/emb?
 ```
 
 #### PR Suggestions and Creation
@@ -120,9 +128,19 @@ files: AgentGen/agents/code_agent.py, AgentGen/extensions/events/github.py
 title: Improve error handling
 description: Add better error handling to the core modules
 files: AgentGen/agents/code_agent.py, AgentGen/extensions/events/github.py
+
+# Natural language requests also work
+@codegen-app can you create a PR to fix the error handling in Zeeeepa/emb?
 ```
 
 The bot will analyze the repository, make the necessary changes, and create a PR with the specified details when using `create PR`. When using `suggest PR`, it will only provide suggestions without creating an actual PR.
+
+#### PR Review
+
+```
+@codegen-app review PR #123 in Zeeeepa/emb
+@codegen-app can you check PR #45?
+```
 
 #### Linear Issue Creation
 
@@ -131,12 +149,16 @@ The bot will analyze the repository, make the necessary changes, and create a PR
 title: Implement better error handling
 description: We need to improve error handling in the GitHub event handlers
 priority: high
+
+# Natural language requests also work
+@codegen-app can you create a high priority issue for improving error handling?
 ```
 
 #### General Code Assistance
 
 ```
 @codegen-app Help me understand how to use the ripgrep tool in codegen
+@codegen-app What's the best way to implement error handling in Python?
 ```
 
 ### PR Reviews
@@ -149,17 +171,21 @@ priority: high
 
 You can customize the prompts for different features by modifying the corresponding handler functions in `app.py`:
 
-- PR reviews: `handle_pr_labeled`
+- PR reviews: `handle_pr_labeled` and `handle_pr_review`
 - Repository analysis: `handle_repo_analysis`
 - PR suggestions: `handle_pr_suggestion`
 - Linear issue creation: `handle_linear_issue_creation`
+- Intent recognition: `detect_intent`
 
 ## Architecture
 
 The application uses the following components:
 
 - **CodegenApp**: Core application that handles events from different platforms
+- **Intent Recognition**: System for detecting user intent from natural language
+- **Repository Manager**: Efficient caching and management of repositories
 - **CodeAgent**: AI agent that performs code analysis and generation
 - **GitHub Tools**: Tools for interacting with GitHub repositories and PRs
 - **Linear Tools**: Tools for creating and managing Linear issues
+- **Semantic Analysis**: Tools for deeper code understanding (semantic search, symbol analysis)
 - **Background Tasks**: Asynchronous task processing for long-running operations
