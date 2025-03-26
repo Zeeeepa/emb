@@ -42,6 +42,8 @@ from agentgen.extensions.langchain.tools import (
 )
 from agentgen.extensions.langchain.graph import create_react_agent
 from agentgen.extensions.events.client import EventClient
+from agentgen.extensions.context import CodeContextProvider
+from agentgen.extensions.planning import PlanningAgent
 from fastapi import Request, BackgroundTasks
 from github import Github
 from langchain_core.messages import SystemMessage
@@ -60,424 +62,11 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 REPO_CACHE_DIR = os.getenv("REPO_CACHE_DIR", "/tmp/codegen_repos")
 
-########################################################################################################################
-# INTENT RECOGNITION
-########################################################################################################################
+# ... keep existing intent recognition code ...
 
-class UserIntent(Enum):
-    """Enum representing different user intents for the bot."""
-    ANALYZE_REPO = "analyze_repo"
-    CREATE_PR = "create_pr"
-    SUGGEST_PR = "suggest_pr"
-    CREATE_ISSUE = "create_issue"
-    REVIEW_PR = "review_pr"
-    GENERAL_QUESTION = "general_question"
-    UNKNOWN = "unknown"
+# ... keep existing repository management code ...
 
-def detect_intent(text: str) -> Tuple[UserIntent, Dict[str, Any]]:
-    """
-    Detect the user's intent from their message text using advanced NLP techniques.
-    
-    Args:
-        text: The user's message text
-        
-    Returns:
-        A tuple of (intent, extracted_params)
-    """
-    text_lower = text.lower()
-    params = {}
-    
-    # Extract repository information first as it's used in multiple intents
-    repo = extract_repo_from_text(text)
-    if repo:
-        params["repo"] = repo
-    
-    # Analyze repository intent - expanded patterns
-    if any(phrase in text_lower for phrase in [
-        "analyze repo", "analyze repository", "analyze codebase", "code analysis",
-        "examine repo", "examine codebase", "look at repo", "check repo", 
-        "review codebase", "understand repo", "explore repo"
-    ]):
-        return UserIntent.ANALYZE_REPO, params
-    
-    # PR creation intent - expanded patterns
-    if any(phrase in text_lower for phrase in [
-        "create pr", "make pr", "submit pr", "open pr", 
-        "create pull request", "make a pull request", "implement", "code up",
-        "build feature", "add feature", "fix bug", "implement feature"
-    ]):
-        pr_params = parse_pr_suggestion_request(text)
-        params.update(pr_params)
-        return UserIntent.CREATE_PR, params
-    
-    # PR suggestion intent - expanded patterns
-    if any(phrase in text_lower for phrase in [
-        "suggest pr", "pr suggestion", "recommend changes", "propose pr",
-        "suggest changes", "suggest improvements", "recommend pr", "how would you change",
-        "what changes", "how to improve", "suggest refactoring"
-    ]):
-        pr_params = parse_pr_suggestion_request(text)
-        params.update(pr_params)
-        return UserIntent.SUGGEST_PR, params
-    
-    # Issue creation intent - expanded patterns
-    if any(phrase in text_lower for phrase in [
-        "create issue", "create ticket", "new issue", "open issue",
-        "make issue", "file issue", "report bug", "track feature", "add task",
-        "create task", "make ticket", "add to backlog"
-    ]):
-        issue_params = parse_issue_request(text)
-        params.update(issue_params)
-        return UserIntent.CREATE_ISSUE, params
-    
-    # PR review intent - expanded patterns
-    if any(phrase in text_lower for phrase in [
-        "review pr", "review pull request", "check pr", "evaluate pr",
-        "look at pr", "assess pr", "analyze pr", "examine pr", "feedback on pr"
-    ]):
-        pr_number_match = re.search(r'pr\s*#?(\d+)', text_lower)
-        if pr_number_match:
-            params["pr_number"] = int(pr_number_match.group(1))
-        return UserIntent.REVIEW_PR, params
-    
-    # Default to general question if no specific intent is detected
-    return UserIntent.GENERAL_QUESTION, params
-
-def parse_issue_request(text: str) -> Dict[str, Any]:
-    """Parse an issue creation request from Slack message text with improved pattern matching."""
-    result = {
-        "title": None,
-        "description": None,
-        "priority": None,
-        "assignee": None,
-        "labels": [],
-    }
-    
-    # Extract issue title
-    title_match = re.search(r'title[:\s]+([^\n]+)', text, re.IGNORECASE)
-    if title_match:
-        result["title"] = title_match.group(1).strip()
-    
-    # Extract issue description
-    desc_match = re.search(r'description[:\s]+(.*?)(?:priority|assignee|labels|$)', text, re.IGNORECASE | re.DOTALL)
-    if desc_match:
-        result["description"] = desc_match.group(1).strip()
-    
-    # Extract priority
-    priority_match = re.search(r'priority[:\s]+(high|medium|low|urgent)', text, re.IGNORECASE)
-    if priority_match:
-        result["priority"] = priority_match.group(1).lower()
-    
-    # Extract assignee
-    assignee_match = re.search(r'assignee[:\s]+([^\n,]+)', text, re.IGNORECASE)
-    if assignee_match:
-        result["assignee"] = assignee_match.group(1).strip()
-    
-    # Extract labels
-    labels_match = re.search(r'labels[:\s]+([^\n]+)', text, re.IGNORECASE)
-    if labels_match:
-        labels_text = labels_match.group(1).strip()
-        result["labels"] = [label.strip() for label in labels_text.split(',')]
-    
-    return result
-
-########################################################################################################################
-# REPOSITORY MANAGEMENT
-########################################################################################################################
-
-class RepoManager:
-    """
-    Advanced repository manager that leverages codegen's git functionality.
-    Manages repository cloning, caching, and access with efficient operations.
-    """
-    def __init__(self, cache_dir: str = REPO_CACHE_DIR):
-        self.cache_dir = cache_dir
-        self.repo_cache = {}  # Maps repo_str to Codebase objects
-        self.repo_operators = {}  # Maps repo_str to RepoOperator objects
-        
-        # Create cache directory if it doesn't exist
-        os.makedirs(cache_dir, exist_ok=True)
-        logger.info(f"Initialized RepoManager with cache directory: {cache_dir}")
-    
-    def get_codebase(self, repo_str: str) -> Codebase:
-        """
-        Get a Codebase object for the specified repository.
-        Will use cached version if available, otherwise clones the repository.
-        
-        Args:
-            repo_str: Repository string in format "owner/repo"
-            
-        Returns:
-            Codebase object for the repository
-        """
-        if repo_str in self.repo_cache:
-            logger.info(f"[REPO_MANAGER] Using cached codebase for {repo_str}")
-            return self.repo_cache[repo_str]
-        
-        logger.info(f"[REPO_MANAGER] Initializing new codebase for {repo_str}")
-        repo_dir = os.path.join(self.cache_dir, repo_str.replace('/', '_'))
-        
-        # Create Codebase object
-        codebase = Codebase.from_repo(
-            repo_str,
-            secrets=SecretsConfig(github_token=GITHUB_TOKEN),
-            clone_dir=repo_dir
-        )
-        
-        # Cache the codebase
-        self.repo_cache[repo_str] = codebase
-        return codebase
-    
-    def get_repo_operator(self, repo_str: str) -> RepoOperator:
-        """
-        Get a RepoOperator object for the specified repository.
-        Will use cached version if available, otherwise creates a new one.
-        
-        Args:
-            repo_str: Repository string in format "owner/repo"
-            
-        Returns:
-            RepoOperator object for the repository
-        """
-        if repo_str in self.repo_operators:
-            logger.info(f"[REPO_MANAGER] Using cached repo operator for {repo_str}")
-            return self.repo_operators[repo_str]
-        
-        logger.info(f"[REPO_MANAGER] Initializing new repo operator for {repo_str}")
-        
-        # Get the codebase first to ensure the repo is cloned
-        codebase = self.get_codebase(repo_str)
-        
-        # Create RepoOperator object
-        repo_operator = RepoOperator(
-            repo_url=f"https://github.com/{repo_str}.git",
-            github_token=GITHUB_TOKEN,
-            clone_dir=os.path.join(self.cache_dir, repo_str.replace('/', '_')),
-            use_cache=True
-        )
-        
-        # Cache the repo operator
-        self.repo_operators[repo_str] = repo_operator
-        return repo_operator
-    
-    def create_branch(self, repo_str: str, branch_name: str) -> bool:
-        """
-        Create a new branch in the repository.
-        
-        Args:
-            repo_str: Repository string in format "owner/repo"
-            branch_name: Name of the branch to create
-            
-        Returns:
-            True if branch was created successfully, False otherwise
-        """
-        repo_operator = self.get_repo_operator(repo_str)
-        try:
-            repo_operator.checkout_branch(branch_name, create=True)
-            return True
-        except Exception as e:
-            logger.exception(f"Error creating branch {branch_name} in {repo_str}: {e}")
-            return False
-    
-    def commit_changes(self, repo_str: str, commit_message: str) -> bool:
-        """
-        Commit changes to the repository.
-        
-        Args:
-            repo_str: Repository string in format "owner/repo"
-            commit_message: Commit message
-            
-        Returns:
-            True if commit was successful, False otherwise
-        """
-        repo_operator = self.get_repo_operator(repo_str)
-        try:
-            repo_operator.commit(commit_message)
-            return True
-        except Exception as e:
-            logger.exception(f"Error committing changes to {repo_str}: {e}")
-            return False
-    
-    def push_branch(self, repo_str: str, branch_name: str) -> bool:
-        """
-        Push a branch to the remote repository.
-        
-        Args:
-            repo_str: Repository string in format "owner/repo"
-            branch_name: Name of the branch to push
-            
-        Returns:
-            True if push was successful, False otherwise
-        """
-        repo_operator = self.get_repo_operator(repo_str)
-        try:
-            repo_operator.push(branch_name)
-            return True
-        except Exception as e:
-            logger.exception(f"Error pushing branch {branch_name} to {repo_str}: {e}")
-            return False
-    
-    def create_pr(self, repo_str: str, title: str, body: str, head_branch: str, base_branch: str = "main") -> Optional[int]:
-        """
-        Create a pull request in the repository.
-        
-        Args:
-            repo_str: Repository string in format "owner/repo"
-            title: PR title
-            body: PR description
-            head_branch: Source branch
-            base_branch: Target branch (default: main)
-            
-        Returns:
-            PR number if created successfully, None otherwise
-        """
-        repo_operator = self.get_repo_operator(repo_str)
-        try:
-            pr = repo_operator.create_pr(title, body, head_branch, base_branch)
-            return pr.number
-        except Exception as e:
-            logger.exception(f"Error creating PR in {repo_str}: {e}")
-            return None
-    
-    def clear_cache(self, repo_str: Optional[str] = None):
-        """
-        Clear the cache for a specific repository or all repositories.
-        
-        Args:
-            repo_str: Repository to clear, or None to clear all
-        """
-        if repo_str:
-            if repo_str in self.repo_cache:
-                logger.info(f"[REPO_MANAGER] Clearing cache for {repo_str}")
-                del self.repo_cache[repo_str]
-            if repo_str in self.repo_operators:
-                logger.info(f"[REPO_MANAGER] Clearing repo operator for {repo_str}")
-                del self.repo_operators[repo_str]
-        else:
-            logger.info("[REPO_MANAGER] Clearing entire cache")
-            self.repo_cache.clear()
-            self.repo_operators.clear()
-
-# Initialize the repository manager
-repo_manager = RepoManager()
-
-def get_codebase_for_repo(repo_str: str) -> Codebase:
-    """Initialize a codebase for a specific repository using the repo manager."""
-    return repo_manager.get_codebase(repo_str)
-
-# HELPER FUNCTIONS
-########################################################################################################################
-
-def get_codebase_for_repo(repo_str: str) -> Codebase:
-    """Initialize a codebase for a specific repository."""
-    logger.info(f"[CODEBASE] Initializing codebase for {repo_str}")
-    return Codebase.from_repo(
-        repo_str,
-        secrets=SecretsConfig(github_token=GITHUB_TOKEN)
-    )
-
-def get_pr_review_agent(codebase: Codebase) -> CodeAgent:
-    """Create a code agent with PR review tools."""
-    pr_tools = [
-        GithubViewPRTool(codebase),
-        GithubCreatePRCommentTool(codebase),
-        GithubCreatePRReviewCommentTool(codebase),
-    ]
-    return CodeAgent(codebase=codebase, tools=pr_tools)
-
-def get_repo_analysis_agent(codebase: Codebase) -> CodeAgent:
-    """Create a code agent with repository analysis tools."""
-    analysis_tools = [
-        GithubViewPRTool(codebase),
-        GithubCreatePRCommentTool(codebase),
-        GithubCreatePRTool(codebase),
-    ]
-    return CodeAgent(codebase=codebase, tools=analysis_tools)
-
-def get_linear_agent(codebase: Codebase) -> CodeAgent:
-    """Create a code agent with Linear integration tools."""
-    linear_tools = [
-        LinearCreateIssueTool(codebase),
-        LinearUpdateIssueTool(codebase),
-        LinearCommentOnIssueTool(codebase),
-        LinearGetIssueTool(codebase),
-    ]
-    return CodeAgent(codebase=codebase, tools=linear_tools)
-
-def extract_repo_from_text(text: str) -> Optional[str]:
-    """Extract repository name from text using regex patterns."""
-    # Match GitHub URL patterns
-    github_url_pattern = r'https?://(?:www\.)?github\.com/([^/\s]+/[^/\s]+)'
-    url_match = re.search(github_url_pattern, text)
-    if url_match:
-        return url_match.group(1)
-    
-    # Match org/repo patterns
-    repo_pattern = r'([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+)'
-    repo_match = re.search(repo_pattern, text)
-    if repo_match:
-        return repo_match.group(1)
-    
-    return None
-
-def remove_bot_comments(repo_str: str, pr_number: int) -> None:
-    """Remove all comments made by the bot on a PR."""
-    g = Github(GITHUB_TOKEN)
-    logger.info(f"Removing bot comments from {repo_str} PR #{pr_number}")
-    
-    repo = g.get_repo(repo_str)
-    pr = repo.get_pull(int(pr_number))
-    
-    # Remove PR comments
-    comments = pr.get_comments()
-    if comments:
-        for comment in comments:
-            if comment.user.login == "codegen-app":  # Bot username
-                logger.info("Removing comment")
-                comment.delete()
-    
-    # Remove PR reviews
-    reviews = pr.get_reviews()
-    if reviews:
-        for review in reviews:
-            if review.user.login == "codegen-app":  # Bot username
-                logger.info("Removing review")
-                review.delete()
-    
-    # Remove issue comments
-    issue_comments = pr.get_issue_comments()
-    if issue_comments:
-        for comment in issue_comments:
-            if comment.user.login == "codegen-app":  # Bot username
-                logger.info("Removing comment")
-                comment.delete()
-
-def parse_pr_suggestion_request(text: str) -> Dict[str, Any]:
-    """Parse a PR suggestion request from Slack message text."""
-    result = {
-        "repo": extract_repo_from_text(text),
-        "title": None,
-        "description": None,
-        "files": [],
-    }
-    
-    # Extract PR title
-    title_match = re.search(r'title[:\s]+([^\n]+)', text, re.IGNORECASE)
-    if title_match:
-        result["title"] = title_match.group(1).strip()
-    
-    # Extract PR description
-    desc_match = re.search(r'description[:\s]+(.*?)(?:file[s]?:|$)', text, re.IGNORECASE | re.DOTALL)
-    if desc_match:
-        result["description"] = desc_match.group(1).strip()
-    
-    # Extract files to modify
-    files_match = re.search(r'file[s]?[:\s]+(.*?)(?:$)', text, re.IGNORECASE | re.DOTALL)
-    if files_match:
-        files_text = files_match.group(1).strip()
-        result["files"] = [f.strip() for f in files_text.split(',') if f.strip()]
-    
-    return result
+# ... keep existing helper functions ...
 
 ########################################################################################################################
 # AGENT CREATION
@@ -496,6 +85,9 @@ def create_advanced_code_agent(codebase: Codebase) -> CodeAgent:
     Returns:
         A CodeAgent with comprehensive tools
     """
+    # Create a context provider for enhanced code understanding
+    context_provider = CodeContextProvider(codebase)
+    
     tools = [
         # Code analysis tools
         ViewFileTool(codebase),
@@ -524,7 +116,52 @@ def create_advanced_code_agent(codebase: Codebase) -> CodeAgent:
         LinearGetIssueTool(codebase),
     ]
     
-    return CodeAgent(codebase=codebase, tools=tools)
+    # Create agent with enhanced context understanding
+    return create_agent_with_tools(
+        codebase=codebase,
+        tools=tools,
+        context_provider=context_provider
+    )
+
+def create_planning_code_agent(codebase: Codebase, task_description: str) -> Any:
+    """
+    Create a planning-based code agent that can break down complex tasks into steps.
+    
+    This agent uses a planning approach to decompose complex coding tasks into
+    manageable steps, improving the quality of PR implementations.
+    
+    Args:
+        codebase: The codebase to operate on
+        task_description: Description of the coding task to perform
+        
+    Returns:
+        A planning-based code agent
+    """
+    # Create context provider for enhanced code understanding
+    context_provider = CodeContextProvider(codebase)
+    
+    # Create tools list
+    tools = [
+        ViewFileTool(codebase),
+        ListDirectoryTool(codebase),
+        RipGrepTool(codebase),
+        SemanticSearchTool(codebase),
+        RevealSymbolTool(codebase),
+        CreateFileTool(codebase),
+        DeleteFileTool(codebase),
+        RenameFileTool(codebase),
+        ReplacementEditTool(codebase),
+        RelaceEditTool(codebase),
+        GithubCreatePRTool(codebase),
+    ]
+    
+    # Create planning agent
+    return PlanningAgent(
+        codebase=codebase,
+        tools=tools,
+        context_provider=context_provider,
+        task_description=task_description
+    )
 
 def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any:
     """
@@ -560,7 +197,7 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any
     else:
         raise ValueError("No LLM API keys available. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
     
-    # Create tools list
+    # Create tools list with enhanced context understanding
     tools = [
         ViewFileTool(codebase),
         ListDirectoryTool(codebase),
@@ -571,8 +208,28 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any
         LinearGetIssueTool(codebase),
     ]
     
-    # Create system message
-    system_msg = SystemMessage(content=system_message)
+    # Create context provider
+    context_provider = CodeContextProvider(codebase)
+    
+    # Create system message with enhanced context understanding
+    enhanced_system_message = f"""
+    {system_message}
+    
+    You have access to advanced code context understanding capabilities.
+    Use the context provider to gain deeper insights into the codebase structure,
+    dependencies, and relationships between components.
+    
+    When analyzing code or suggesting changes, consider:
+    1. The overall architecture and design patterns
+    2. Dependencies between components
+    3. Potential side effects of changes
+    4. Best practices for the specific language and framework
+    5. Performance implications
+    
+    Your goal is to provide high-quality, contextually aware assistance.
+    """
+    
+    system_msg = SystemMessage(content=enhanced_system_message)
     
     # Create agent config
     config = {
@@ -580,8 +237,8 @@ def create_chat_agent_with_graph(codebase: Codebase, system_message: str) -> Any
         "keep_first_messages": 2,
     }
     
-    # Create and return the agent graph
-    return create_react_agent(model, tools, system_msg, config=config)
+    # Create and return the agent graph with context provider
+    return create_react_agent(model, tools, system_msg, config=config, context_provider=context_provider)
 
 # ... keep existing events ...
 
@@ -611,13 +268,13 @@ base_image = (
     )
 )
 
-app = modal.App("codegen-app")
+app = modal.App("coder")  # Changed from "codegen-app" to "coder"
 
 @app.function(image=base_image, secrets=[modal.Secret.from_dotenv()])
 @modal.asgi_app()
 def fastapi_app():
     """Entry point for the FastAPI app."""
-    logger.info("Starting codegen FastAPI app")
+    logger.info("Starting coder FastAPI app")  # Updated log message
     return cg.app
 
 @app.function(image=base_image, secrets=[modal.Secret.from_dotenv()])
@@ -628,7 +285,7 @@ def entrypoint(event: dict, request: Request):
     return cg.github.handle(event, request)
 
 async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
-    """Handle PR creation requests with enhanced repository management."""
+    """Handle PR creation requests with enhanced repository management and code context understanding."""
     # If no repository specified, use default
     repo_str = params.get("repo") or DEFAULT_REPO
     
@@ -641,7 +298,7 @@ async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
     
     try:
         # Create a unique branch name
-        branch_name = f"codegen-pr-{uuid.uuid4().hex[:8]}"
+        branch_name = f"coder-pr-{uuid.uuid4().hex[:8]}"  # Updated prefix from codegen to coder
         
         # Use the repo manager to create a branch
         if not repo_manager.create_branch(repo_str, branch_name):
@@ -658,30 +315,21 @@ async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
         # Initialize codebase
         codebase = repo_manager.get_codebase(repo_str)
         
-        # Create advanced code agent
-        agent = create_advanced_code_agent(codebase)
-        
-        # Create prompt for PR creation
-        prompt = f"""
+        # Create task description for planning agent
+        task_description = f"""
         Create a pull request for the repository {repo_str} with the following details:
         
         Branch name: {branch_name}
-        Title: {params.get("title") or "Improvements by CodegenApp"}
+        Title: {params.get("title") or "Improvements by Coder"}
         Description: {params.get("description") or "Improvements based on code analysis"}
         Files to focus on: {', '.join(params.get("files", [])) if params.get("files") else "Identify key files that need improvement"}
-        
-        Follow these steps:
-        1. Analyze the codebase and identify areas for improvement
-        2. Make specific code changes to improve the identified areas
-        3. Create a PR with the changes
-        4. Return the PR URL and a summary of changes
-        
-        Focus on code quality, performance, and best practices.
-        Use semantic search and symbol analysis to better understand the codebase structure.
         """
         
-        # Run the agent
-        response = agent.run(prompt)
+        # Use planning agent for better PR implementation
+        agent = create_planning_code_agent(codebase, task_description)
+        
+        # Run the agent with enhanced context understanding
+        response = agent.execute_task()
         
         # Extract PR URL if created
         import re
@@ -691,7 +339,7 @@ async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
         # If PR URL not found in response, try to create PR manually
         if not pr_url:
             # Commit changes
-            if not repo_manager.commit_changes(repo_str, f"Changes by CodegenApp: {params.get('title') or 'Improvements'}"):
+            if not repo_manager.commit_changes(repo_str, f"Changes by Coder: {params.get('title') or 'Improvements'}"):
                 raise Exception("Failed to commit changes")
             
             # Push branch
@@ -701,7 +349,7 @@ async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
             # Create PR
             pr_number = repo_manager.create_pr(
                 repo_str,
-                params.get("title") or "Improvements by CodegenApp",
+                params.get("title") or "Improvements by Coder",
                 params.get("description") or "Improvements based on code analysis",
                 branch_name
             )
@@ -735,6 +383,3 @@ async def handle_pr_creation(event: SlackEvent, params: Dict[str, Any]):
             text=error_message,
             thread_ts=event.ts
         )
-
-async
-
