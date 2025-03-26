@@ -71,6 +71,310 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 REPO_CACHE_DIR = os.getenv("REPO_CACHE_DIR", "/tmp/codegen_repos")
 
+# REPOSITORY MANAGEMENT
+########################################################################################################################
+
+class RepoManager:
+    """
+    Advanced repository manager that leverages codegen's git functionality.
+    Manages repository cloning, caching, and access with efficient operations.
+    """
+    def __init__(self, cache_dir: str = REPO_CACHE_DIR):
+        self.cache_dir = cache_dir
+        self.repo_cache = {}  # Maps repo_str to Codebase objects
+        self.repo_operators = {}  # Maps repo_str to RepoOperator objects
+
+        # Create cache directory if it doesn't exist
+        os.makedirs(cache_dir, exist_ok=True)
+
+        logger.info(f"Initialized RepoManager with cache directory: {cache_dir}")
+
+    def get_codebase(self, repo_str: str) -> Codebase:
+        """
+        Get a Codebase object for the specified repository.
+        Will use cached version if available, otherwise clones the repository.
+
+        Args:
+            repo_str: Repository string in format "owner/repo"
+
+        Returns:
+            Codebase object for the repository
+        """
+        if repo_str in self.repo_cache:
+            logger.info(f"[REPO_MANAGER] Using cached codebase for {repo_str}")
+            return self.repo_cache[repo_str]
+
+        logger.info(f"[REPO_MANAGER] Initializing new codebase for {repo_str}")
+        repo_dir = os.path.join(self.cache_dir, repo_str.replace('/', '_'))
+
+        # Create Codebase object
+        codebase = Codebase.from_repo(
+            repo_str,
+            secrets=SecretsConfig(github_token=GITHUB_TOKEN),
+            clone_dir=repo_dir
+        )
+
+        # Cache the codebase
+        self.repo_cache[repo_str] = codebase
+        return codebase
+
+    def get_repo_operator(self, repo_str: str) -> RepoOperator:
+        """
+        Get a RepoOperator object for the specified repository.
+        Will use cached version if available, otherwise creates a new one.
+
+        Args:
+            repo_str: Repository string in format "owner/repo"
+
+        Returns:
+            RepoOperator object for the repository
+        """
+        if repo_str in self.repo_operators:
+            logger.info(f"[REPO_MANAGER] Using cached repo operator for {repo_str}")
+            return self.repo_operators[repo_str]
+
+        logger.info(f"[REPO_MANAGER] Initializing new repo operator for {repo_str}")
+
+        # Get the codebase first to ensure the repo is cloned
+        codebase = self.get_codebase(repo_str)
+
+        # Create RepoOperator object
+        repo_operator = RepoOperator(
+            repo_url=f"https://github.com/{repo_str}.git",
+            github_token=GITHUB_TOKEN,
+            clone_dir=os.path.join(self.cache_dir, repo_str.replace('/', '_')),
+            use_cache=True
+        )
+
+        # Cache the repo operator
+        self.repo_operators[repo_str] = repo_operator
+        return repo_operator
+
+    def create_branch(self, repo_str: str, branch_name: str) -> bool:
+        """
+        Create a new branch in the repository.
+
+        Args:
+            repo_str: Repository string in format "owner/repo"
+            branch_name: Name of the branch to create
+
+        Returns:
+            True if branch was created successfully, False otherwise
+        """
+        repo_operator = self.get_repo_operator(repo_str)
+        try:
+            repo_operator.checkout_branch(branch_name, create=True)
+            return True
+        except Exception as e:
+            logger.exception(f"Error creating branch {branch_name} in {repo_str}: {e}")
+            return False
+
+    def commit_changes(self, repo_str: str, commit_message: str) -> bool:
+        """
+        Commit changes to the repository.
+
+        Args:
+            repo_str: Repository string in format "owner/repo"
+            commit_message: Commit message
+
+        Returns:
+            True if commit was successful, False otherwise
+        """
+        repo_operator = self.get_repo_operator(repo_str)
+        try:
+            repo_operator.commit(commit_message)
+            return True
+        except Exception as e:
+            logger.exception(f"Error committing changes to {repo_str}: {e}")
+            return False
+
+    def push_changes(self, repo_str: str, branch_name: str) -> bool:
+        """
+        Push changes to the repository.
+
+        Args:
+            repo_str: Repository string in format "owner/repo"
+            branch_name: Name of the branch to push
+
+        Returns:
+            True if push was successful, False otherwise
+        """
+        repo_operator = self.get_repo_operator(repo_str)
+        try:
+            repo_operator.push(branch_name)
+            return True
+        except Exception as e:
+            logger.exception(f"Error pushing changes to {repo_str}: {e}")
+            return False
+
+# AGENT CREATION
+########################################################################################################################
+
+def create_advanced_code_agent(codebase: Codebase):
+    """
+    Create an advanced code agent with comprehensive tools for code analysis and manipulation.
+
+    This agent combines semantic search, symbol analysis, and code editing capabilities
+    to provide deep insights into codebases and make precise modifications.
+
+    Args:
+        codebase: The codebase to operate on
+
+    Returns:
+        A CodeAgent with comprehensive tools
+    """
+    # Import agentgen modules here to ensure they're available in the Modal environment
+    try:
+        from agentgen import create_agent_with_tools
+        from agentgen.extensions.langchain.tools import (
+            ViewFileTool,
+            ListDirectoryTool,
+            RipGrepTool,
+            SemanticSearchTool,
+            RevealSymbolTool,
+            CreateFileTool,
+            DeleteFileTool,
+            RenameFileTool,
+            ReplacementEditTool,
+            RelaceEditTool,
+            GithubViewPRTool,
+            GithubCreatePRCommentTool,
+            GithubCreatePRReviewCommentTool,
+            GithubCreatePRTool,
+        )
+        from langchain_core.messages import SystemMessage
+
+        tools = [
+            # Code analysis tools
+            ViewFileTool(codebase),
+            ListDirectoryTool(codebase),
+            RipGrepTool(codebase),
+            SemanticSearchTool(codebase),
+            RevealSymbolTool(codebase),
+
+            # Code editing tools
+            CreateFileTool(codebase),
+            DeleteFileTool(codebase),
+            RenameFileTool(codebase),
+            ReplacementEditTool(codebase),
+            RelaceEditTool(codebase),
+
+            # GitHub tools
+            GithubViewPRTool(codebase),
+            GithubCreatePRCommentTool(codebase),
+            GithubCreatePRReviewCommentTool(codebase),
+            GithubCreatePRTool(codebase),
+        ]
+
+        # Create agent with enhanced tools
+        return create_agent_with_tools(
+            codebase=codebase,
+            tools=tools,
+            system_message=SystemMessage(content="""
+            You are an expert code assistant that helps developers understand and improve their code.
+            You have access to a comprehensive set of tools for code analysis and manipulation.
+
+            When analyzing code or suggesting changes, consider:
+            1. The overall architecture and design patterns
+            2. Dependencies between components
+            3. Potential side effects of changes
+            4. Best practices for the specific language and framework
+            5. Performance implications
+
+            Your goal is to provide high-quality, contextually aware assistance.
+            """)
+        )
+    except ImportError as e:
+        logger.error(f"Failed to import agentgen modules: {e}")
+        raise
+
+def create_chat_agent_with_graph(codebase: Codebase, system_message: str):
+    """
+    Create a chat agent using the LangGraph architecture for more robust conversation handling.
+
+    This agent uses the LangGraph framework to manage conversation state, handle errors,
+    and provide a more natural conversational experience.
+
+    Args:
+        codebase: The codebase to operate on
+        system_message: The system message to initialize the agent with
+
+    Returns:
+        A LangGraph-based chat agent
+    """
+    # Import agentgen modules here to ensure they're available in the Modal environment
+    try:
+        from agentgen.extensions.langchain.llm import LLM
+        from agentgen.extensions.langchain.tools import (
+            ViewFileTool,
+            ListDirectoryTool,
+            RipGrepTool,
+            SemanticSearchTool,
+            RevealSymbolTool,
+            GithubViewPRTool,
+        )
+        from agentgen.extensions.langchain.graph import create_react_agent
+        from langchain_core.messages import SystemMessage
+
+        # Create LLM based on available API keys
+        if ANTHROPIC_API_KEY:
+            model = LLM(
+                model_provider="anthropic",
+                model_name="claude-3-opus-20240229",
+                temperature=0.2,
+                anthropic_api_key=ANTHROPIC_API_KEY
+            )
+        elif OPENAI_API_KEY:
+            model = LLM(
+                model_provider="openai",
+                model_name="gpt-4-turbo",
+                temperature=0.2,
+                openai_api_key=OPENAI_API_KEY
+            )
+        else:
+            raise ValueError("No LLM API keys available. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
+
+        # Create tools list with enhanced context understanding
+        tools = [
+            ViewFileTool(codebase),
+            ListDirectoryTool(codebase),
+            RipGrepTool(codebase),
+            SemanticSearchTool(codebase),
+            RevealSymbolTool(codebase),
+            GithubViewPRTool(codebase),
+        ]
+
+        # Create enhanced system message
+        enhanced_system_message = f"""
+        {system_message}
+
+        You have access to advanced code analysis capabilities.
+        When analyzing code or suggesting changes, consider:
+        1. The overall architecture and design patterns
+        2. Dependencies between components
+        3. Potential side effects of changes
+        4. Best practices for the specific language and framework
+        5. Performance implications
+
+        Your goal is to provide high-quality, contextually aware assistance.
+        """
+
+        system_msg = SystemMessage(content=enhanced_system_message)
+
+        # Create agent config
+        config = {
+            "max_messages": 100,
+            "keep_first_messages": 2,
+        }
+
+        # Create and return the agent graph
+        return create_react_agent(model=model, tools=tools, system_message=system_msg, config=config)
+
+
+    except ImportError as e:
+        logger.error(f"Failed to import agentgen modules: {e}")
+        raise
+
 # MODAL DEPLOYMENT
 ########################################################################################################################
 # This deploys the FastAPI app to Modal
@@ -128,6 +432,9 @@ base_image = (
 # Create the Modal app
 app = modal.App("coder")
 
+# Initialize the repo manager
+repo_manager = RepoManager()
+
 # Define the CodebaseEventsApp implementation
 @app.cls(image=base_image, container_idle_timeout=300)
 class CodegenEventsApp(CodebaseEventsApp):
@@ -149,42 +456,195 @@ class CodegenEventsApp(CodebaseEventsApp):
         @cg.github.event("pull_request:opened")
         def handle_pr_opened(event: dict):
             logger.info(f"Handling PR opened event: {event}")
-            # Process the PR opened event
-            return {"message": "PR opened event handled"}
+            
+            # Extract repository information
+            repo_name = event.get("repository", {}).get("full_name", DEFAULT_REPO)
+            pr_number = event.get("number")
+            pr_title = event.get("pull_request", {}).get("title", "")
+            pr_body = event.get("pull_request", {}).get("body", "")
+            
+            # Get the codebase for analysis
+            try:
+                codebase = repo_manager.get_codebase(repo_name)
+                
+                # Create an advanced code agent for analysis
+                agent = create_advanced_code_agent(codebase)
+                
+                # Analyze the PR
+                analysis_result = agent.run(f"""
+                Analyze this PR:
+                Title: {pr_title}
+                Description: {pr_body}
+                
+                Provide a brief analysis of the changes and any potential issues.
+                """)
+                
+                # Comment on the PR with the analysis
+                if pr_number:
+                    create_pr_comment(
+                        repo_name=repo_name,
+                        pr_number=pr_number,
+                        comment=f"## PR Analysis\n\n{analysis_result}",
+                        github_token=GITHUB_TOKEN
+                    )
+                
+                return {"message": "PR opened event handled", "analysis": analysis_result}
+            except Exception as e:
+                logger.exception(f"Error handling PR opened event: {e}")
+                return {"error": str(e)}
         
         @cg.github.event("pull_request:labeled")
         def handle_pr_labeled(event: dict):
             logger.info(f"Handling PR labeled event: {event}")
-            # Process the PR labeled event
-            return {"message": "PR labeled event handled"}
+            
+            # Extract repository information
+            repo_name = event.get("repository", {}).get("full_name", DEFAULT_REPO)
+            pr_number = event.get("number")
+            label = event.get("label", {}).get("name", "")
+            
+            # Only process if it's the trigger label
+            if label.lower() == TRIGGER_LABEL.lower():
+                try:
+                    # Get the codebase for analysis
+                    codebase = repo_manager.get_codebase(repo_name)
+                    
+                    # Create an advanced code agent for analysis
+                    agent = create_advanced_code_agent(codebase)
+                    
+                    # Analyze the PR
+                    analysis_result = agent.run(f"""
+                    Perform a detailed code review for PR #{pr_number}.
+                    
+                    Focus on:
+                    1. Code quality and best practices
+                    2. Potential bugs or edge cases
+                    3. Performance considerations
+                    4. Security implications
+                    
+                    Provide specific recommendations for improvements.
+                    """)
+                    
+                    # Comment on the PR with the analysis
+                    if pr_number:
+                        create_pr_comment(
+                            repo_name=repo_name,
+                            pr_number=pr_number,
+                            comment=f"## Detailed Code Review\n\n{analysis_result}",
+                            github_token=GITHUB_TOKEN
+                        )
+                    
+                    return {"message": "PR labeled event handled", "analysis": analysis_result}
+                except Exception as e:
+                    logger.exception(f"Error handling PR labeled event: {e}")
+                    return {"error": str(e)}
+            else:
+                return {"message": f"Ignoring label {label}, waiting for {TRIGGER_LABEL}"}
         
         # Set up Slack event handlers
         @cg.slack.event("app_mention")
         async def handle_app_mention(event: dict):
             logger.info(f"Handling app mention event: {event}")
-            # Process the app mention event
             
             # Get the text of the message
             text = event.get("text", "")
             user = event.get("user", "")
             channel = event.get("channel", "")
+            thread_ts = event.get("thread_ts", event.get("ts"))
             
-            # Send a response
+            # Extract repository information from the message
+            repo_pattern = r"(?:analyze|review|check)\s+(?:repo|repository)?\s*(?::|=|-)?\s*([a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+)"
+            repo_match = re.search(repo_pattern, text, re.IGNORECASE)
+            repo_name = repo_match.group(1) if repo_match else DEFAULT_REPO
+            
+            # Send an acknowledgment
             cg.slack.client.chat_postMessage(
                 channel=channel,
-                text=f"Hello <@{user}>! I received your message: {text}",
-                thread_ts=event.get("thread_ts", event.get("ts"))
+                text=f"Hello <@{user}>! I'm analyzing the repository {repo_name}...",
+                thread_ts=thread_ts
             )
             
-            return {"message": "App mention event handled"}
+            try:
+                # Get the codebase for analysis
+                codebase = repo_manager.get_codebase(repo_name)
+                
+                # Create a chat agent for conversation
+                agent = create_chat_agent_with_graph(
+                    codebase=codebase,
+                    system_message=f"""
+                    You are an expert code assistant analyzing the repository {repo_name}.
+                    Respond to the user's questions about the codebase with detailed, accurate information.
+                    """
+                )
+                
+                # Process the user's message
+                response = agent.run(text)
+                
+                # Send the response
+                cg.slack.client.chat_postMessage(
+                    channel=channel,
+                    text=response,
+                    thread_ts=thread_ts
+                )
+                
+                return {"message": "App mention event handled", "response": response}
+            except Exception as e:
+                logger.exception(f"Error handling app mention event: {e}")
+                
+                # Send error message
+                cg.slack.client.chat_postMessage(
+                    channel=channel,
+                    text=f"Sorry, I encountered an error: {str(e)}",
+                    thread_ts=thread_ts
+                )
+                
+                return {"error": str(e)}
         
         @cg.slack.event("message")
         async def handle_message(event: dict):
             logger.info(f"Handling message event: {event}")
+            
             # Only respond to messages in channels, not DMs
             if event.get("channel_type") == "channel":
-                # Process the message event
+                # Check if this is a message in a thread where we're already engaged
+                thread_ts = event.get("thread_ts")
+                if thread_ts and event.get("ts") != thread_ts:  # It's a reply in a thread
+                    channel = event.get("channel", "")
+                    user = event.get("user", "")
+                    text = event.get("text", "")
+                    
+                    # Check if we should process this message
+                    # For example, we might want to check if we've already responded in this thread
+                    
+                    try:
+                        # Get the default codebase
+                        codebase = repo_manager.get_codebase(DEFAULT_REPO)
+                        
+                        # Create a chat agent for conversation
+                        agent = create_chat_agent_with_graph(
+                            codebase=codebase,
+                            system_message="""
+                            You are an expert code assistant.
+                            Respond to the user's questions about code with detailed, accurate information.
+                            """
+                        )
+                        
+                        # Process the user's message
+                        response = agent.run(text)
+                        
+                        # Send the response
+                        cg.slack.client.chat_postMessage(
+                            channel=channel,
+                            text=response,
+                            thread_ts=thread_ts
+                        )
+                        
+                        return {"message": "Thread message event handled", "response": response}
+                    except Exception as e:
+                        logger.exception(f"Error handling thread message event: {e}")
+                        return {"error": str(e)}
+                
                 return {"message": "Message event handled"}
+            
             return {"message": "Ignoring DM"}
 
 # Define the EventRouterMixin implementation
@@ -293,3 +753,42 @@ def slack_webhook(event: dict, request: Request):
     
     logger.info(f"Handling Slack webhook for {org}/{repo}")
     return event_router.handle_event(org=org, repo=repo, provider="slack", request=request)
+
+# Define the entrypoint for direct API access
+@app.function(image=base_image)
+@modal.fastapi_endpoint(method="POST")
+def entrypoint(request: Request):
+    """Entry point for direct API access."""
+    # Import here to ensure the imports work in the Modal environment
+    import sys
+    import os
+    
+    # Add paths to ensure agentgen is found
+    sys.path.append('/root')
+    
+    # Process the request
+    async def process_request():
+        # Parse the request body
+        body = await request.json()
+        
+        # Extract parameters
+        repo_name = body.get("repo", DEFAULT_REPO)
+        query = body.get("query", "")
+        
+        try:
+            # Get the codebase for analysis
+            codebase = repo_manager.get_codebase(repo_name)
+            
+            # Create an advanced code agent for analysis
+            agent = create_advanced_code_agent(codebase)
+            
+            # Process the query
+            response = agent.run(query)
+            
+            return {"response": response}
+        except Exception as e:
+            logger.exception(f"Error processing request: {e}")
+            return {"error": str(e)}
+    
+    return process_request()
+
