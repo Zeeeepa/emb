@@ -634,7 +634,6 @@ base_image = (
         "fastapi[standard]",
         "slack_sdk",
         "pygithub",
-        "linear-sdk",
     )
 )
 
