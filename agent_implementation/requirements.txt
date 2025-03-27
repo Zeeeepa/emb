@@ -1,0 +1,5 @@
+langchain-core>=0.1.0
+langgraph>=0.0.20
+mcp-server>=0.1.0
+codegen-sdk>=0.1.0
+agentgen>=0.1.0
